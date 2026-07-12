@@ -40,6 +40,10 @@ func queryUnescape(service string) string {
 	return s
 }
 
+func casServicesMatch(requestedService, issuedService string) bool {
+	return queryUnescape(requestedService) == queryUnescape(issuedService)
+}
+
 func (c *RootController) CasValidate() {
 	ticket := c.Ctx.Input.Query("ticket")
 	service := c.Ctx.Input.Query("service")
@@ -102,7 +106,7 @@ func (c *RootController) CasP3ProxyValidate() {
 	// find the token
 	if ok {
 		// check whether service is the one for which we previously issued token
-		if strings.HasPrefix(service, issuedService) || strings.HasPrefix(queryUnescape(service), issuedService) {
+		if casServicesMatch(service, issuedService) {
 			serviceResponse.Success = response
 		} else {
 			// service not match
@@ -222,7 +226,7 @@ func (c *RootController) SamlValidate() {
 		return
 	}
 
-	if !strings.HasPrefix(target, service) {
+	if !casServicesMatch(target, service) {
 		c.ResponseError(fmt.Sprintf(c.T("cas:Service %s and %s do not match"), target, service))
 		return
 	}
