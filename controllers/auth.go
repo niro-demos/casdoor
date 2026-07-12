@@ -790,6 +790,8 @@ func (c *ApiController) Login() {
 			var signinErr *object.SigninError
 			if errors.As(err, &signinErr) {
 				c.Ctx.Input.SetParam("recordDetail", signinErr.Reason)
+				c.ResponseError(anonymousLoginFailure(err.Error()))
+				return
 			}
 			c.ResponseError(err.Error())
 			return

@@ -209,12 +209,12 @@ func (c *ApiController) SendVerificationCode() {
 			return
 		}
 		if user == nil || user.IsDeleted {
-			c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+			c.ResponseOk(anonymousRecoveryResult("user not found"))
 			return
 		}
 
 		if user.IsForbidden {
-			c.ResponseError(c.T("check:The user is forbidden to sign in, please contact the administrator"))
+			c.ResponseOk(anonymousRecoveryResult("user forbidden"))
 			return
 		}
 	} else if mfaUserSession := c.getMfaUserSession(); mfaUserSession != "" {
@@ -321,7 +321,7 @@ func (c *ApiController) SendVerificationCode() {
 			}
 
 			if user == nil {
-				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				c.ResponseOk(anonymousRecoveryResult("user not found"))
 				return
 			}
 		} else if vform.Method == ResetVerification {
@@ -343,6 +343,10 @@ func (c *ApiController) SendVerificationCode() {
 			return
 		}
 		if provider == nil {
+			if vform.Method == ForgetVerification {
+				c.ResponseOk(anonymousRecoveryResult("provider not configured"))
+				return
+			}
 			c.ResponseError(fmt.Sprintf(c.T("verification:please add an Email provider to the \"Providers\" list for the application: %s"), application.Name))
 			return
 		}
@@ -358,7 +362,7 @@ func (c *ApiController) SendVerificationCode() {
 				c.ResponseError(err.Error())
 				return
 			} else if user == nil {
-				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				c.ResponseOk(anonymousRecoveryResult("user not found"))
 				return
 			}
 
@@ -389,6 +393,10 @@ func (c *ApiController) SendVerificationCode() {
 			return
 		}
 		if provider == nil {
+			if vform.Method == ForgetVerification {
+				c.ResponseOk(anonymousRecoveryResult("provider not configured"))
+				return
+			}
 			c.ResponseError(fmt.Sprintf(c.T("verification:please add a SMS provider to the \"Providers\" list for the application: %s"), application.Name))
 			return
 		}
@@ -401,7 +409,9 @@ func (c *ApiController) SendVerificationCode() {
 		}
 	}
 
-	if sendResp != nil {
+	if vform.Method == ForgetVerification {
+		c.ResponseOk(anonymousRecoveryResult("request processed"))
+	} else if sendResp != nil {
 		c.ResponseError(sendResp.Error())
 	} else {
 		c.ResponseOk()
