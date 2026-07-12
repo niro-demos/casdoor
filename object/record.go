@@ -33,7 +33,7 @@ var (
 
 func init() {
 	logPostOnly = conf.GetConfigBool("logPostOnly")
-	passwordRegex = regexp.MustCompile("\"password\":\"([^\"]*?)\"")
+	passwordRegex = regexp.MustCompile(`(?i)("password"\s*:\s*)"[^"]*"`)
 }
 
 type Record struct {
@@ -68,7 +68,36 @@ type Response struct {
 }
 
 func maskPassword(recordString string) string {
-	return passwordRegex.ReplaceAllString(recordString, "\"password\":\"***\"")
+	var value interface{}
+	decoder := json.NewDecoder(strings.NewReader(recordString))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return passwordRegex.ReplaceAllString(recordString, `${1}"***"`)
+	}
+
+	redactPasswords(value)
+	masked, err := json.Marshal(value)
+	if err != nil {
+		return passwordRegex.ReplaceAllString(recordString, `${1}"***"`)
+	}
+	return string(masked)
+}
+
+func redactPasswords(value interface{}) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		for key, child := range typed {
+			if strings.EqualFold(key, "password") {
+				typed[key] = "***"
+				continue
+			}
+			redactPasswords(child)
+		}
+	case []interface{}:
+		for _, child := range typed {
+			redactPasswords(child)
+		}
+	}
 }
 
 func NewRecord(ctx *context.Context) (*Record, error) {
@@ -178,6 +207,16 @@ func GetRecordCount(field, value string, filterRecord *Record) (int64, error) {
 func GetRecords() ([]*Record, error) {
 	records := []*Record{}
 	err := ormer.Engine.Desc("id").Find(&records)
+	if err != nil {
+		return records, err
+	}
+
+	return records, nil
+}
+
+func GetRecordsByOrganization(organization string) ([]*Record, error) {
+	records := []*Record{}
+	err := ormer.Engine.Desc("id").Find(&records, &Record{Organization: organization})
 	if err != nil {
 		return records, err
 	}

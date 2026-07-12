@@ -43,9 +43,11 @@ func (c *ApiController) GetRecords() {
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 	organizationName := c.Ctx.Input.Query("organizationName")
+	organization = getRecordOrganization(organization, c.IsGlobalAdmin(), organizationName)
+	filterRecord := &object.Record{Organization: organization}
 
 	if limit == "" || page == "" {
-		records, err := object.GetRecords()
+		records, err := object.GetRecordsByOrganization(organization)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
@@ -54,10 +56,6 @@ func (c *ApiController) GetRecords() {
 		c.ResponseOk(records)
 	} else {
 		limit := util.ParseInt(limit)
-		if c.IsGlobalAdmin() && organizationName != "" {
-			organization = organizationName
-		}
-		filterRecord := &object.Record{Organization: organization}
 		count, err := object.GetRecordCount(field, value, filterRecord)
 		if err != nil {
 			c.ResponseError(err.Error())
@@ -73,6 +71,13 @@ func (c *ApiController) GetRecords() {
 
 		c.ResponseOk(records, paginator.Nums())
 	}
+}
+
+func getRecordOrganization(callerOrganization string, isGlobalAdmin bool, requestedOrganization string) string {
+	if isGlobalAdmin && requestedOrganization != "" {
+		return requestedOrganization
+	}
+	return callerOrganization
 }
 
 // GetRecordsByFilter
