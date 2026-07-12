@@ -314,13 +314,9 @@ func (c *ApiController) BatchEnforce() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-objects [get]
 func (c *ApiController) GetAllObjects() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.getAuthorizedListingUserId()
+	if !ok {
+		return
 	}
 
 	objects, err := object.GetAllObjects(userId)
@@ -340,13 +336,9 @@ func (c *ApiController) GetAllObjects() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-actions [get]
 func (c *ApiController) GetAllActions() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.getAuthorizedListingUserId()
+	if !ok {
+		return
 	}
 
 	actions, err := object.GetAllActions(userId)
@@ -366,13 +358,9 @@ func (c *ApiController) GetAllActions() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-roles [get]
 func (c *ApiController) GetAllRoles() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.getAuthorizedListingUserId()
+	if !ok {
+		return
 	}
 
 	roles, err := object.GetAllRoles(userId)
@@ -382,4 +370,23 @@ func (c *ApiController) GetAllRoles() {
 	}
 
 	c.ResponseOk(roles)
+}
+
+func (c *ApiController) getAuthorizedListingUserId() (string, bool) {
+	sessionUserId := c.GetSessionUsername()
+	if sessionUserId == "" {
+		c.ResponseError(c.T("general:Please login first"))
+		return "", false
+	}
+
+	userId := c.Ctx.Input.Query("userId")
+	if userId == "" || userId == sessionUserId {
+		return sessionUserId, true
+	}
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return "", false
+	}
+
+	return userId, true
 }
