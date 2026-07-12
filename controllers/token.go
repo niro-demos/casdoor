@@ -524,14 +524,8 @@ func (c *ApiController) IntrospectToken() {
 			c.ResponseTokenError(object.InvalidRequest, err.Error())
 			return
 		}
-		if token == nil || token.ExpiresIn <= 0 {
+		if token == nil || token.ExpiresIn <= 0 || !object.TokenBelongsToApplication(token, application) {
 			respondWithInactiveToken()
-			return
-		}
-
-		if token.ExpiresIn <= 0 {
-			c.Data["json"] = &object.IntrospectionResponse{Active: false}
-			c.ServeJSON()
 			return
 		}
 	}

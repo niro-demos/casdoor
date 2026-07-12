@@ -428,6 +428,12 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 			ErrorDescription: "refresh token is invalid or revoked",
 		}, nil
 	}
+	if !TokenBelongsToApplication(token, application) {
+		return &TokenError{
+			Error:            InvalidGrant,
+			ErrorDescription: "refresh token was issued to a different client",
+		}, nil
+	}
 
 	// check if the token has been invalidated (e.g., by SSO logout)
 	if token.ExpiresIn <= 0 {

@@ -168,6 +168,14 @@ func (token *Token) GetId() string {
 	return fmt.Sprintf("%s/%s", token.Owner, token.Name)
 }
 
+// TokenBelongsToApplication reports whether a token was issued to application.
+// Both owner and name are required because application names are only unique
+// within their owner.
+func TokenBelongsToApplication(token *Token, application *Application) bool {
+	return token != nil && application != nil &&
+		token.Owner == application.Owner && token.Application == application.Name
+}
+
 func getTokenHash(input string) string {
 	hash := sha256.Sum256([]byte(input))
 	res := hex.EncodeToString(hash[:])
