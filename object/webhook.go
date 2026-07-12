@@ -138,6 +138,10 @@ func GetWebhookByOrganization(id string, organization string) (*Webhook, error) 
 }
 
 func UpdateWebhook(id string, webhook *Webhook, isGlobalAdmin bool, lang string) (bool, error) {
+	if err := validateWebhookTarget(webhook.Url); err != nil {
+		return false, err
+	}
+
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
@@ -160,6 +164,10 @@ func UpdateWebhook(id string, webhook *Webhook, isGlobalAdmin bool, lang string)
 }
 
 func AddWebhook(webhook *Webhook) (bool, error) {
+	if err := validateWebhookTarget(webhook.Url); err != nil {
+		return false, err
+	}
+
 	affected, err := ormer.Engine.Insert(webhook)
 	if err != nil {
 		return false, err

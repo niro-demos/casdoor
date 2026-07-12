@@ -19,13 +19,12 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/casdoor/casdoor/util"
 )
 
 func sendWebhook(webhook *Webhook, record *Record, extendedUser *User) (int, string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := newWebhookHTTPClient()
 	userMap := make(map[string]interface{})
 	var body io.Reader
 
