@@ -145,20 +145,35 @@ func (c *ApiController) GetPayment() {
 		return
 	}
 
-	if !c.IsAdmin() {
-		sessionUser := c.GetSessionUsername()
-		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
-		if payment != nil && (payment.Owner != sessionUserOwner || payment.User != sessionUserName) {
-			c.ResponseError("Forbidden")
-			return
-		}
+	if !c.authorizePaymentAccess(payment) {
+		return
 	}
 
 	c.ResponseOk(payment)
+}
+
+func (c *ApiController) authorizePaymentAccess(payment *object.Payment) bool {
+	if c.IsAdmin() {
+		return true
+	}
+
+	sessionUser := c.GetSessionUsername()
+	if sessionUser == "" {
+		c.ResponseError("Forbidden")
+		return false
+	}
+
+	sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return false
+	}
+	if payment != nil && (payment.Owner != sessionUserOwner || payment.User != sessionUserName) {
+		c.ResponseError("Forbidden")
+		return false
+	}
+
+	return true
 }
 
 // UpdatePayment
@@ -258,10 +273,14 @@ func (c *ApiController) InvoicePayment() {
 		c.ResponseError(err.Error())
 		return
 	}
+	if !c.authorizePaymentAccess(payment) {
+		return
+	}
 
 	invoiceUrl, err := object.InvoicePayment(payment)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
 	}
 	c.ResponseOk(invoiceUrl)
 }
