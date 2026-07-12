@@ -253,6 +253,18 @@ func (c *ApiController) UploadResource() {
 		c.ResponseError(err.Error())
 		return
 	}
+
+	targetUser, err := object.GetUserNoCheck(util.GetId(owner, username))
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	currentUser := c.getCurrentUser()
+	if !canUploadResource(currentUser, targetUser, provider, c.IsGlobalAdmin(), c.Ctx.Input.Query("provider") != "") {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
 	_, fullFilePath = refineFullFilePath(fullFilePath)
 
 	fileType := "unknown"
@@ -396,4 +408,23 @@ func (c *ApiController) UploadResource() {
 	}
 
 	c.ResponseOk(fileUrl, objectKey)
+}
+
+// canUploadResource ensures that an upload cannot be attributed to another user
+// or routed through an explicitly selected provider from another organization.
+// Application-configured providers are trusted by the application fallback path.
+func canUploadResource(actor, target *object.User, provider *object.Provider, isGlobalAdmin, providerExplicit bool) bool {
+	if isGlobalAdmin {
+		return true
+	}
+	if actor == nil || target == nil || provider == nil {
+		return false
+	}
+	if actor.Owner != target.Owner || (actor.Name != target.Name && !actor.IsAdmin) {
+		return false
+	}
+	if providerExplicit && provider.Owner != actor.Owner {
+		return false
+	}
+	return true
 }
