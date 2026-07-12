@@ -111,7 +111,35 @@ func (c *ApiController) GetSubscription() {
 		return
 	}
 
+	username := c.GetSessionUsername()
+	isGlobalAdmin := object.IsAppUser(username)
+	var user *object.User
+	if username != "" && !isGlobalAdmin {
+		user, err = object.GetUser(username)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		isGlobalAdmin = user != nil && user.IsGlobalAdmin()
+	}
+
+	if !canReadSubscription(isGlobalAdmin, user, subscription) {
+		c.ResponseError("Unauthorized operation")
+		return
+	}
+
 	c.ResponseOk(subscription)
+}
+
+func canReadSubscription(isGlobalAdmin bool, user *object.User, subscription *object.Subscription) bool {
+	if isGlobalAdmin {
+		return true
+	}
+	if user == nil || subscription == nil || user.Owner != subscription.Owner {
+		return false
+	}
+
+	return user.IsAdmin || user.Name == subscription.User
 }
 
 // UpdateSubscription
