@@ -77,3 +77,30 @@ func TestRedirectUriMatchesPattern(t *testing.T) {
 		}
 	}
 }
+
+func TestGetMaskedApplicationProtectsManagementCredentials(t *testing.T) {
+	const (
+		registrationAccessToken = "registration-access-token"
+		clientCert              = "client-certificate"
+	)
+
+	newApplication := func() *Application {
+		return &Application{
+			RegistrationAccessToken: registrationAccessToken,
+			ClientCert:              clientCert,
+		}
+	}
+
+	adminApplication := GetMaskedApplication(newApplication(), "built-in/admin")
+	if adminApplication.RegistrationAccessToken != registrationAccessToken || adminApplication.ClientCert != clientCert {
+		t.Fatal("global administrator must retain access to application management credentials")
+	}
+
+	anonymousApplication := GetMaskedApplication(newApplication(), "")
+	if anonymousApplication.RegistrationAccessToken == registrationAccessToken {
+		t.Error("anonymous caller received the registration access token")
+	}
+	if anonymousApplication.ClientCert == clientCert {
+		t.Error("anonymous caller received the client certificate")
+	}
+}
