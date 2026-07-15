@@ -55,7 +55,7 @@ type testServer struct {
 
 // repoRoot returns the repository root, derived from this test file's own
 // path (controllers/prometheus_admin_scope_test.go is one level below root).
-func repoRoot(t *testing.T) string {
+func prometheusTestRepoRoot(t *testing.T) string {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -67,7 +67,7 @@ func repoRoot(t *testing.T) string {
 // freePort asks the OS for an ephemeral port and immediately releases it, so
 // the test server instance doesn't collide with any other instance
 // (including a separately running Niro harness) on the same host.
-func freePort(t *testing.T) int {
+func prometheusTestFreePort(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -83,7 +83,7 @@ func freePort(t *testing.T) int {
 // tracked conf/app.conf (and whatever port it names) is never touched and
 // never at risk of being mistaken by main.go's util.StopOldInstance() for a
 // stale copy of itself.
-func writeTestAppConf(t *testing.T, root, destPath string, httpPort int) {
+func prometheusWriteTestAppConf(t *testing.T, root, destPath string, httpPort int) {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join(root, "conf", "app.conf"))
 	if err != nil {
@@ -109,7 +109,7 @@ func writeTestAppConf(t *testing.T, root, destPath string, httpPort int) {
 
 func startTestServer(t *testing.T) *testServer {
 	t.Helper()
-	root := repoRoot(t)
+	root := prometheusTestRepoRoot(t)
 
 	workDir := t.TempDir()
 	binPath := filepath.Join(workDir, "casdoor-test-server")
@@ -120,10 +120,10 @@ func startTestServer(t *testing.T) *testServer {
 		t.Fatalf("failed to build casdoor for the integration test: %v\n%s", err, out)
 	}
 
-	httpPort := freePort(t)
-	ldapPort := freePort(t)
-	ldapsPort := freePort(t)
-	radiusPort := freePort(t)
+	httpPort := prometheusTestFreePort(t)
+	ldapPort := prometheusTestFreePort(t)
+	ldapsPort := prometheusTestFreePort(t)
+	radiusPort := prometheusTestFreePort(t)
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", httpPort)
 
 	dbFile := filepath.Join(workDir, "casdoor.db")
@@ -148,7 +148,7 @@ func startTestServer(t *testing.T) *testServer {
 	// kills whatever process already owns that port. Getting this wrong
 	// here would kill an unrelated, already-running instance on 8000.
 	testConfPath := filepath.Join(workDir, "app.conf")
-	writeTestAppConf(t, root, testConfPath, httpPort)
+	prometheusWriteTestAppConf(t, root, testConfPath, httpPort)
 
 	cmd := exec.Command(binPath, "-config="+testConfPath)
 	cmd.Dir = root
