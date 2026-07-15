@@ -53,9 +53,47 @@ func (c *ApiController) GetResources() {
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 
-	isOrgAdmin, ok := c.IsOrgAdmin()
+	userId, ok := c.RequireSignedIn()
 	if !ok {
 		return
+	}
+
+	isOrgAdmin := false
+	if object.IsAppUser(userId) {
+		isOrgAdmin = true
+	} else {
+		signedInUser, err := object.GetUser(userId)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if signedInUser == nil {
+			c.ClearUserSession()
+			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), userId))
+			return
+		}
+
+		// Only a global admin (Owner == "built-in") may list another
+		// organization's resources. An org admin may only list their own
+		// organization's resources (owner must match their own Owner). A
+		// standard user may only list their own resources: owner must match
+		// their own Owner, and user is forced to their own Name rather than
+		// trusting the client-supplied value.
+		if signedInUser.IsGlobalAdmin() {
+			isOrgAdmin = true
+		} else if signedInUser.IsAdmin {
+			if owner != signedInUser.Owner {
+				c.ResponseError(c.T("auth:Unauthorized operation"))
+				return
+			}
+			isOrgAdmin = true
+		} else {
+			if owner != signedInUser.Owner {
+				c.ResponseError(c.T("auth:Unauthorized operation"))
+				return
+			}
+			user = signedInUser.Name
+		}
 	}
 
 	if isOrgAdmin {

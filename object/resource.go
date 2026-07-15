@@ -46,8 +46,7 @@ func GetResourceCount(owner, user, field, value string) (int64, error) {
 }
 
 func GetResources(owner string, user string) ([]*Resource, error) {
-	if owner == "built-in" || owner == "" {
-		owner = ""
+	if owner == "" {
 		user = ""
 	}
 
@@ -61,8 +60,7 @@ func GetResources(owner string, user string) ([]*Resource, error) {
 }
 
 func GetPaginationResources(owner, user string, offset, limit int, field, value, sortField, sortOrder string) ([]*Resource, error) {
-	if owner == "built-in" || owner == "" {
-		owner = ""
+	if owner == "" {
 		user = ""
 	}
 
