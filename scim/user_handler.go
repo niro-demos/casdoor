@@ -29,37 +29,41 @@ type UserResourceHandler struct{}
 // https://datatracker.ietf.org/doc/html/rfc7644#section-3.4 How to query/update resources
 
 func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
+	// An org-scoped admin may only create users in their own organization: force
+	// the target org rather than trusting whatever the request body claims.
+	if scope := OrgScopeFromContext(r); scope != "" {
+		attrs[UserExtensionKey] = scim.ResourceAttributes{"organization": scope}
+	}
 	resource := &scim.Resource{Attributes: attrs}
 	err := AddScimUser(resource)
 	return *resource, err
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := GetScimUser(id)
+	user, err := getScopedUser(r, id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if resource == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
-	}
-	return *resource, nil
+	return *user2resource(user), nil
 }
 
 func (h UserResourceHandler) Delete(r *http.Request, id string) error {
-	user, err := object.GetUserByUserIdOnly(id)
+	user, err := getScopedUser(r, id)
 	if err != nil {
 		return err
-	}
-	if user == nil {
-		return errors.ScimErrorResourceNotFound(id)
 	}
 	_, err = object.DeleteUser(user)
 	return err
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	// "" (from a global admin) means instance-wide; any other value confines
+	// the query to that organization, mirroring how /api/get-users scopes by
+	// owner.
+	owner := OrgScopeFromContext(r)
+
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		count, err := userCountForScope(owner)
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -68,7 +72,7 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 
 	resources := make([]scim.Resource, 0)
 	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	users, err := paginationUsersForScope(owner, params.StartIndex-1, params.Count)
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -82,27 +86,54 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 }
 
 func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim.PatchOperation) (scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
-	if err != nil {
+	if _, err := getScopedUser(r, id); err != nil {
 		return scim.Resource{}, err
-	}
-	if user == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	return UpdateScimUserByPatchOperation(id, operations)
 }
 
 func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
-	if err != nil {
+	if _, err := getScopedUser(r, id); err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
-	}
 	resource := &scim.Resource{Attributes: attrs}
-	err = UpdateScimUser(id, resource)
+	err := UpdateScimUser(id, resource)
 	return *resource, err
+}
+
+// getScopedUser loads the user identified by SCIM id and enforces the
+// caller's organization scope carried on r's context (see WithOrgScope /
+// OrgScopeFromContext): an org-scoped admin (non-empty scope) may only
+// see/manage users in their own organization; a global admin (empty scope) is
+// unrestricted. A scope mismatch is reported the same way as "doesn't exist"
+// so a foreign org's user IDs can't be enumerated via a 403 vs. 404
+// difference.
+func getScopedUser(r *http.Request, id string) (*object.User, error) {
+	user, err := object.GetUserByUserIdOnly(id)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+	if scope := OrgScopeFromContext(r); scope != "" && user.Owner != scope {
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+	return user, nil
+}
+
+func userCountForScope(owner string) (int64, error) {
+	if owner == "" {
+		return object.GetGlobalUserCount("", "")
+	}
+	return object.GetUserCount(owner, "", "", "")
+}
+
+func paginationUsersForScope(owner string, offset, limit int) ([]*object.User, error) {
+	if owner == "" {
+		return object.GetPaginationGlobalUsers(offset, limit, "", "", "", "")
+	}
+	return object.GetPaginationUsers(owner, offset, limit, "", "", "", "", "")
 }
 
 func GetScimUser(id string) (*scim.Resource, error) {

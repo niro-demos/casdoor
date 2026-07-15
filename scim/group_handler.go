@@ -30,13 +30,23 @@ const GroupExtensionKey = "urn:ietf:params:scim:schemas:extension:enterprise:2.0
 type GroupResourceHandler struct{}
 
 func (h GroupResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
+	// An org-scoped admin may only create groups in their own organization:
+	// force the target org rather than trusting whatever the request body
+	// claims.
+	if scope := OrgScopeFromContext(r); scope != "" {
+		attrs[GroupExtensionKey] = scim.ResourceAttributes{"organization": scope}
+	}
 	resource := &scim.Resource{Attributes: attrs}
 	err := addScimGroup(resource)
 	return *resource, err
 }
 
 func (h GroupResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := getScimGroup(id)
+	group, err := getScopedGroup(r, id)
+	if err != nil {
+		return scim.Resource{}, err
+	}
+	resource, err := getScimGroup(group.GetId())
 	if err != nil {
 		return scim.Resource{}, err
 	}
@@ -47,12 +57,9 @@ func (h GroupResourceHandler) Get(r *http.Request, id string) (scim.Resource, er
 }
 
 func (h GroupResourceHandler) Delete(r *http.Request, id string) error {
-	group, err := object.GetGroup(id)
+	group, err := getScopedGroup(r, id)
 	if err != nil {
 		return err
-	}
-	if group == nil {
-		return errors.ScimErrorResourceNotFound(id)
 	}
 	if err := clearGroupMembers(id); err != nil {
 		return err
@@ -62,8 +69,12 @@ func (h GroupResourceHandler) Delete(r *http.Request, id string) error {
 }
 
 func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	// "" (from a global admin) means instance-wide; any other value confines
+	// the query to that organization, mirroring the User handler.
+	owner := OrgScopeFromContext(r)
+
 	if params.Count == 0 {
-		count, err := object.GetGroupCount("", "", "")
+		count, err := object.GetGroupCount(owner, "", "")
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -71,7 +82,7 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 	}
 
 	// startIndex is 1-based
-	groups, err := object.GetPaginationGroups("", params.StartIndex-1, params.Count, "", "", "", "")
+	groups, err := object.GetPaginationGroups(owner, params.StartIndex-1, params.Count, "", "", "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -87,7 +98,7 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 		}
 	}
 
-	totalCount, err := object.GetGroupCount("", "", "")
+	totalCount, err := object.GetGroupCount(owner, "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -99,27 +110,41 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 }
 
 func (h GroupResourceHandler) Patch(r *http.Request, id string, operations []scim.PatchOperation) (scim.Resource, error) {
-	group, err := object.GetGroup(id)
+	group, err := getScopedGroup(r, id)
 	if err != nil {
 		return scim.Resource{}, err
-	}
-	if group == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	return updateScimGroupByPatch(id, group, operations)
 }
 
 func (h GroupResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
-	group, err := object.GetGroup(id)
+	group, err := getScopedGroup(r, id)
 	if err != nil {
 		return scim.Resource{}, err
-	}
-	if group == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	resource := &scim.Resource{Attributes: attrs}
 	err = updateScimGroup(id, group, resource)
 	return *resource, err
+}
+
+// getScopedGroup loads the group identified by SCIM id and enforces the
+// caller's organization scope carried on r's context: an org-scoped admin
+// (non-empty scope) may only see/manage groups in their own organization; a
+// global admin (empty scope) is unrestricted. A scope mismatch is reported
+// the same way as "doesn't exist" so a foreign org's group IDs can't be
+// enumerated via a 403 vs. 404 difference.
+func getScopedGroup(r *http.Request, id string) (*object.Group, error) {
+	group, err := object.GetGroup(id)
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+	if scope := OrgScopeFromContext(r); scope != "" && group.Owner != scope {
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+	return group, nil
 }
 
 func getScimGroup(id string) (*scim.Resource, error) {

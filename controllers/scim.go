@@ -21,12 +21,17 @@ import (
 )
 
 func (c *RootController) HandleScim() {
-	_, ok := c.RequireAdmin()
+	// RequireAdmin returns the caller's organization: "" for a global admin
+	// (instance-wide access), or the caller's own org for an org-scoped admin.
+	// That scope must be threaded through to every SCIM resource handler so an
+	// org-scoped admin can never read or write another organization's data.
+	owner, ok := c.RequireAdmin()
 	if !ok {
 		return
 	}
 
 	path := c.Ctx.Request.URL.Path
 	c.Ctx.Request.URL.Path = strings.TrimPrefix(path, "/scim")
-	scim.Server.ServeHTTP(c.Ctx.ResponseWriter, c.Ctx.Request)
+	req := c.Ctx.Request.WithContext(scim.WithOrgScope(c.Ctx.Request.Context(), owner))
+	scim.Server.ServeHTTP(c.Ctx.ResponseWriter, req)
 }
