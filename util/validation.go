@@ -127,6 +127,16 @@ func IsValidOrigin(origin string) (bool, error) {
 		originHostOnly = fmt.Sprintf("%s://%s", urlObj.Scheme, urlObj.Hostname())
 	}
 
-	res := originHostOnly == "http://localhost" || originHostOnly == "https://localhost" || originHostOnly == "http://127.0.0.1" || originHostOnly == "http://casdoor-authenticator" || strings.HasSuffix(originHostOnly, ".chromiumapp.org")
+	// Only loopback hosts used for local development are globally trusted here.
+	// Anything else — in particular a suffix match like "*.chromiumapp.org" —
+	// must NOT be granted a blanket pass: such hosts are attacker-obtainable
+	// (e.g. any browser-extension author can mint a fresh "<random-id>.chromiumapp.org"
+	// origin) and a blanket pass here would let that origin be treated as a
+	// valid redirect URI for every OAuth application on the instance, regardless
+	// of what that application's own RedirectUris allowlist contains. Origins
+	// like a specific extension's chromiumapp.org callback must instead be
+	// registered explicitly in the application's own RedirectUris list, just
+	// like any other redirect URI.
+	res := originHostOnly == "http://localhost" || originHostOnly == "https://localhost"
 	return res, nil
 }

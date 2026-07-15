@@ -367,20 +367,25 @@ func (application *Application) GetId() string {
 }
 
 func (application *Application) IsRedirectUriValid(redirectUri string) bool {
-	isValid, err := util.IsValidOrigin(redirectUri)
-	if err != nil {
-		panic(err)
-	}
-	if isValid {
-		return true
-	}
-
+	// Check the application's own explicit allowlist first: this is the
+	// authoritative source of truth for what this application accepts, and
+	// must not be overridden by a global, cross-application special case.
 	for _, targetUri := range application.RedirectUris {
 		if redirectUriMatchesPattern(redirectUri, targetUri) {
 			return true
 		}
 	}
-	return false
+
+	// util.IsValidOrigin() only allows a small set of local-development
+	// loopback origins (e.g. http://localhost) globally; it must never grant
+	// a blanket pass to an attacker-obtainable origin (like an arbitrary
+	// "*.chromiumapp.org" browser-extension id) that this application never
+	// registered.
+	isValid, err := util.IsValidOrigin(redirectUri)
+	if err != nil {
+		panic(err)
+	}
+	return isValid
 }
 
 func redirectUriMatchesPattern(redirectUri, targetUri string) bool {

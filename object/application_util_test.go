@@ -77,3 +77,61 @@ func TestRedirectUriMatchesPattern(t *testing.T) {
 		}
 	}
 }
+
+// TestIsRedirectUriValidRejectsUnregisteredChromiumappOrigin asserts the
+// invariant that the authorization server must not treat a redirect URI as
+// valid unless the requesting application has explicitly registered it in
+// its own RedirectUris list. util.IsValidOrigin previously granted a blanket
+// pass to any "https://<anything>.chromiumapp.org/*" origin, so an
+// application with an empty (or unrelated) RedirectUris list would still
+// accept an attacker-chosen chromiumapp.org redirect URI, letting a browser
+// extension author phish victims of any application on the instance.
+func TestIsRedirectUriValidRejectsUnregisteredChromiumappOrigin(t *testing.T) {
+	tests := []struct {
+		name         string
+		redirectUris []string
+		redirectUri  string
+		want         bool
+	}{
+		{
+			name:         "arbitrary chromiumapp.org origin is rejected when the app has no registered redirect URIs",
+			redirectUris: []string{},
+			redirectUri:  "https://abcdefghijklmnopqrstuvwxyzabcdef.chromiumapp.org/oauth2",
+			want:         false,
+		},
+		{
+			name:         "control: an unrelated, non-chromiumapp.org origin is rejected the same way",
+			redirectUris: []string{},
+			redirectUri:  "https://evil.example.invalid/cb",
+			want:         false,
+		},
+		{
+			name:         "a chromiumapp.org origin is accepted once the app owner explicitly registers it",
+			redirectUris: []string{"https://abcdefghijklmnopqrstuvwxyzabcdef.chromiumapp.org/oauth2"},
+			redirectUri:  "https://abcdefghijklmnopqrstuvwxyzabcdef.chromiumapp.org/oauth2",
+			want:         true,
+		},
+		{
+			name:         "a different, unregistered chromiumapp.org origin is still rejected even when another one is registered",
+			redirectUris: []string{"https://abcdefghijklmnopqrstuvwxyzabcdef.chromiumapp.org/oauth2"},
+			redirectUri:  "https://xyzuniqueextid987654321.chromiumapp.org/callback",
+			want:         false,
+		},
+		{
+			name:         "control: a normally registered exact redirect URI is still accepted",
+			redirectUris: []string{"https://login.example.com/callback"},
+			redirectUri:  "https://login.example.com/callback",
+			want:         true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := &Application{RedirectUris: tt.redirectUris}
+			got := app.IsRedirectUriValid(tt.redirectUri)
+			if got != tt.want {
+				t.Errorf("IsRedirectUriValid(%q) with RedirectUris=%v = %v, want %v", tt.redirectUri, tt.redirectUris, got, tt.want)
+			}
+		})
+	}
+}
