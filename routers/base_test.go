@@ -36,7 +36,7 @@ func setupRoutersTestEnv(t *testing.T) {
 	})
 }
 
-func newTestContext(rawQuery string) *context.Context {
+func newTestQueryContext(rawQuery string) *context.Context {
 	req := httptest.NewRequest(http.MethodGet, "/api/add-webhook?"+rawQuery, nil)
 	w := httptest.NewRecorder()
 	ctx := context.NewContext()
@@ -73,7 +73,7 @@ func TestGetUsernameByClientIdSecretStashesAppOrganization(t *testing.T) {
 		_, _ = object.DeleteApplication(application)
 	}()
 
-	ctx := newTestContext(fmt.Sprintf("clientId=%s&clientSecret=%s", application.ClientId, application.ClientSecret))
+	ctx := newTestQueryContext(fmt.Sprintf("clientId=%s&clientSecret=%s", application.ClientId, application.ClientSecret))
 
 	username, err := getUsernameByClientIdSecret(ctx)
 	if err != nil {
@@ -107,7 +107,7 @@ func TestGetUsernameByClientIdSecretStashesAppOrganization(t *testing.T) {
 func TestGetUsernameByClientIdSecretNoAppOrganizationWithoutCredentials(t *testing.T) {
 	setupRoutersTestEnv(t)
 
-	ctx := newTestContext("")
+	ctx := newTestQueryContext("")
 
 	username, err := getUsernameByClientIdSecret(ctx)
 	if err != nil {
