@@ -315,12 +315,16 @@ func (c *ApiController) BatchEnforce() {
 // @router /get-all-objects [get]
 func (c *ApiController) GetAllObjects() {
 	userId := c.Ctx.Input.Query("userId")
+	sessionUserId := c.GetSessionUsername()
 	if userId == "" {
-		userId = c.GetSessionUsername()
+		userId = sessionUserId
 		if userId == "" {
 			c.ResponseError(c.T("general:Please login first"))
 			return
 		}
+	} else if userId != sessionUserId && !c.IsAdmin() {
+		c.ResponseError(c.T("general:Only admin user can specify user"))
+		return
 	}
 
 	objects, err := object.GetAllObjects(userId)
@@ -341,12 +345,16 @@ func (c *ApiController) GetAllObjects() {
 // @router /get-all-actions [get]
 func (c *ApiController) GetAllActions() {
 	userId := c.Ctx.Input.Query("userId")
+	sessionUserId := c.GetSessionUsername()
 	if userId == "" {
-		userId = c.GetSessionUsername()
+		userId = sessionUserId
 		if userId == "" {
 			c.ResponseError(c.T("general:Please login first"))
 			return
 		}
+	} else if userId != sessionUserId && !c.IsAdmin() {
+		c.ResponseError(c.T("general:Only admin user can specify user"))
+		return
 	}
 
 	actions, err := object.GetAllActions(userId)
@@ -367,12 +375,16 @@ func (c *ApiController) GetAllActions() {
 // @router /get-all-roles [get]
 func (c *ApiController) GetAllRoles() {
 	userId := c.Ctx.Input.Query("userId")
+	sessionUserId := c.GetSessionUsername()
 	if userId == "" {
-		userId = c.GetSessionUsername()
+		userId = sessionUserId
 		if userId == "" {
 			c.ResponseError(c.T("general:Please login first"))
 			return
 		}
+	} else if userId != sessionUserId && !c.IsAdmin() {
+		c.ResponseError(c.T("general:Only admin user can specify user"))
+		return
 	}
 
 	roles, err := object.GetAllRoles(userId)
