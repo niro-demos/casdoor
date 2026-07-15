@@ -146,6 +146,27 @@ func (c *ApiController) RequireAdmin() (string, bool) {
 	return user.Owner, true
 }
 
+// RequireGlobalAdmin requires the signed-in user to be a true, instance-wide
+// global admin (Owner == "built-in"). Unlike RequireAdmin(), an
+// organization-scoped admin (IsAdmin == true with Owner != "built-in") is
+// rejected here. Use this for endpoints that return instance-wide data with
+// no per-organization filtering (e.g. platform-wide Prometheus/system
+// metrics) — RequireAdmin() would incorrectly let any org admin read data
+// scoped to every organization, not just their own.
+func (c *ApiController) RequireGlobalAdmin() (string, bool) {
+	user, ok := c.RequireSignedInUser()
+	if !ok {
+		return "", false
+	}
+
+	if !user.IsGlobalAdmin() {
+		c.ResponseError(c.T("general:this operation requires administrator to perform"))
+		return "", false
+	}
+
+	return user.Owner, true
+}
+
 func (c *ApiController) IsOrgAdmin() (bool, bool) {
 	userId, ok := c.RequireSignedIn()
 	if !ok {
