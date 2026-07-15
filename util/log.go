@@ -37,21 +37,47 @@ func getIpInfo(clientIp string) string {
 	return strings.Trim(first, "[]")
 }
 
+// ipFromRemoteAddr extracts just the IP portion of an http.Request's
+// RemoteAddr (which is "IP:port", or "[IP]:port" for IPv6) - the address of
+// the immediate TCP peer as reported by the Go runtime, not anything a
+// client can influence via a header.
+func ipFromRemoteAddr(remoteAddr string) string {
+	ipPort := strings.Split(remoteAddr, ":")
+	if len(ipPort) >= 1 && len(ipPort) <= 2 {
+		return ipPort[0]
+	} else if len(ipPort) > 2 {
+		idx := strings.LastIndex(remoteAddr, ":")
+		clientIp := remoteAddr[0:idx]
+		clientIp = strings.TrimLeft(clientIp, "[")
+		clientIp = strings.TrimRight(clientIp, "]")
+		return clientIp
+	}
+	return ""
+}
+
+// GetClientIpFromRequest returns the caller's IP, preferring the
+// X-Forwarded-For header when present. This is intended for logging /
+// display purposes only: X-Forwarded-For is a plain client-supplied header
+// that any caller can set to an arbitrary value unless a trusted reverse
+// proxy in front of Casdoor is known to overwrite it, so this value must
+// never be used to make an access-control decision. Use GetRealClientIp for
+// that instead.
 func GetClientIpFromRequest(req *http.Request) string {
 	clientIp := req.Header.Get("x-forwarded-for")
 	if clientIp == "" {
-		ipPort := strings.Split(req.RemoteAddr, ":")
-		if len(ipPort) >= 1 && len(ipPort) <= 2 {
-			clientIp = ipPort[0]
-		} else if len(ipPort) > 2 {
-			idx := strings.LastIndex(req.RemoteAddr, ":")
-			clientIp = req.RemoteAddr[0:idx]
-			clientIp = strings.TrimLeft(clientIp, "[")
-			clientIp = strings.TrimRight(clientIp, "]")
-		}
+		clientIp = ipFromRemoteAddr(req.RemoteAddr)
 	}
 
 	return getIpInfo(clientIp)
+}
+
+// GetRealClientIp returns the IP address of the immediate TCP peer only,
+// ignoring X-Forwarded-For and any other client-supplied header. Use this
+// wherever the client IP feeds into a security decision (e.g. an IP
+// allowlist), since - unlike GetClientIpFromRequest - it cannot be forged by
+// the caller.
+func GetRealClientIp(req *http.Request) string {
+	return getIpInfo(ipFromRemoteAddr(req.RemoteAddr))
 }
 
 func LogInfo(ctx *context.Context, f string, v ...interface{}) {

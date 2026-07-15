@@ -52,7 +52,12 @@ func truncate(b []byte, max int) []byte {
 }
 
 func resolveOpenClawProvider(ctx *context.Context) (*log.OpenClawProvider, int, error) {
-	clientIP := util.GetClientIpFromRequest(ctx.Request)
+	// Use the real TCP peer address, not util.GetClientIpFromRequest: these
+	// OTLP ingest endpoints are unauthenticated (Casbin grants "*" access),
+	// so the per-provider Host allowlist is the only access control they
+	// have. X-Forwarded-For is a plain client-supplied header - trusting it
+	// here would let any caller forge their way past the allowlist.
+	clientIP := util.GetRealClientIp(ctx.Request)
 	provider, err := object.GetOpenClawProviderByIP(clientIP)
 	if err != nil {
 		return nil, 500, fmt.Errorf("provider lookup failed: %w", err)
