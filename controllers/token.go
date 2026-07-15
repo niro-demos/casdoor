@@ -488,6 +488,17 @@ func (c *ApiController) ValidateOAuth(ignoreValidSecret bool) (ok bool, applicat
 	return
 }
 
+// tokenIssuedToClient reports whether an OAuth token issued to the
+// application identified by tokenOwnerClientId may be introspected by the
+// client identified by requestClientId. Per RFC 7662 an OAuth client must
+// only receive token metadata for tokens issued to it; a client presenting
+// valid credentials for a different, unrelated application must not learn
+// anything about a token it doesn't own, even though the token itself is
+// valid and unexpired.
+func tokenIssuedToClient(tokenOwnerClientId, requestClientId string) bool {
+	return tokenOwnerClientId != "" && requestClientId != "" && tokenOwnerClientId == requestClientId
+}
+
 // IntrospectToken
 // @Title IntrospectToken
 // @Tag Login API
@@ -506,7 +517,7 @@ func (c *ApiController) ValidateOAuth(ignoreValidSecret bool) (ok bool, applicat
 func (c *ApiController) IntrospectToken() {
 	tokenValue := c.Ctx.Input.Query("token")
 
-	ok, application, _, _, err := c.ValidateOAuth(false)
+	ok, application, requestClientId, _, err := c.ValidateOAuth(false)
 	if err != nil || !ok {
 		return
 	}
@@ -613,6 +624,19 @@ func (c *ApiController) IntrospectToken() {
 		}
 		if application == nil {
 			c.ResponseError(fmt.Sprintf(c.T("auth:The application: %s does not exist"), token.Application))
+			return
+		}
+
+		// RFC 7662: a client must only receive metadata for tokens that were
+		// issued to it. application here is resolved from the token's own
+		// owner/application record, i.e. the application the token was
+		// actually issued to — not necessarily the caller's application
+		// (validated above via ValidateOAuth). If the two don't match, the
+		// caller is introspecting a token that belongs to a different,
+		// unrelated application/organization; treat it as inactive rather
+		// than disclosing its holder's identity and metadata.
+		if !tokenIssuedToClient(application.ClientId, requestClientId) {
+			respondWithInactiveToken()
 			return
 		}
 
