@@ -447,7 +447,11 @@ func downloadCLI() error {
 // @Success 200 {object} controllers.Response The Response object
 // @router /refresh-engines [post]
 func (c *ApiController) RefreshEngines() {
-	if !conf.IsDemoMode() && !c.IsAdmin() {
+	// This is a server-wide operation (downloads and installs binaries into
+	// the shared server PATH, not scoped to any single organization), so it
+	// requires a true instance-wide admin - an org-scoped admin's IsAdmin
+	// flag must not satisfy this check.
+	if !conf.IsDemoMode() && !c.IsGlobalAdmin() {
 		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return
 	}
