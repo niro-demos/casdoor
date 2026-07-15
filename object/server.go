@@ -15,9 +15,11 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/mcp"
 	"github.com/casdoor/casdoor/util"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -70,7 +72,7 @@ func GetServer(id string) (*Server, error) {
 	return getServer(owner, name)
 }
 
-func UpdateServer(id string, server *Server) (bool, error) {
+func UpdateServer(id string, server *Server, isGlobalAdmin bool, lang string) (bool, error) {
 	owner, name := util.GetOwnerAndNameFromIdNoCheck(id)
 	oldServer, err := getServer(owner, name)
 	if err != nil {
@@ -78,6 +80,8 @@ func UpdateServer(id string, server *Server) (bool, error) {
 	}
 	if oldServer == nil {
 		return false, nil
+	} else if !isGlobalAdmin && oldServer.Owner != server.Owner {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
 	if server.Token == "" {
