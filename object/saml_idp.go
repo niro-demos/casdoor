@@ -339,6 +339,26 @@ func GetSamlResponse(application *Application, user *User, samlRequest string, h
 		return "", "", "", fmt.Errorf("err: Issuer URI: %s doesn't exist in the allowed Redirect URI list", authnRequest.Issuer)
 	}
 
+	// redirect Url (Assertion Consumer Url)
+	//
+	// The AssertionConsumerServiceURL in the incoming AuthnRequest is
+	// attacker-controlled and unauthenticated. When the application has a
+	// pre-registered SamlReplyUrl, that trusted value always wins. Otherwise
+	// the requested ACS URL must be validated the same way Issuer already is
+	// (via IsRedirectUriValid) before it is ever trusted to receive the
+	// signed identity assertion -- never take it verbatim.
+	if application.SamlReplyUrl != "" {
+		method = "POST"
+		authnRequest.AssertionConsumerServiceURL = application.SamlReplyUrl
+	} else if authnRequest.AssertionConsumerServiceURL == "" {
+		return "", "", "", fmt.Errorf("err: SAML request don't has attribute 'AssertionConsumerServiceURL' in <samlp:AuthnRequest>")
+	} else if isValid := application.IsRedirectUriValid(authnRequest.AssertionConsumerServiceURL); !isValid {
+		return "", "", "", fmt.Errorf("err: AssertionConsumerServiceURL: %s doesn't exist in the allowed Redirect URI list", authnRequest.AssertionConsumerServiceURL)
+	}
+	if authnRequest.ProtocolBinding == "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" {
+		method = "POST"
+	}
+
 	// get certificate string
 	cert, err := getCertByApplication(application)
 	if err != nil {
@@ -351,17 +371,6 @@ func GetSamlResponse(application *Application, user *User, samlRequest string, h
 
 	block, _ := pem.Decode([]byte(cert.Certificate))
 	certificate := base64.StdEncoding.EncodeToString(block.Bytes)
-
-	// redirect Url (Assertion Consumer Url)
-	if application.SamlReplyUrl != "" {
-		method = "POST"
-		authnRequest.AssertionConsumerServiceURL = application.SamlReplyUrl
-	} else if authnRequest.AssertionConsumerServiceURL == "" {
-		return "", "", "", fmt.Errorf("err: SAML request don't has attribute 'AssertionConsumerServiceURL' in <samlp:AuthnRequest>")
-	}
-	if authnRequest.ProtocolBinding == "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" {
-		method = "POST"
-	}
 
 	_, originBackend := getOriginFromHost(host)
 
