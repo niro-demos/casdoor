@@ -170,3 +170,56 @@ func DeleteLdap(ldap *Ldap) (bool, error) {
 
 	return affected != 0, nil
 }
+
+// GetLdapForCaller fetches the ldap record identified by id and, unless the
+// caller is a global admin, verifies the record's persisted Owner matches
+// callerOwner before returning it.
+//
+// GetLdap looks records up purely by their global random Id with no notion
+// of tenancy, so this check must never trust an owner value the caller
+// supplied (e.g. the "acme" prefix in a spoofed id="acme/<victim-uuid>")
+// — only the row's own Owner, as stored in the database, counts. A mismatch
+// is reported the same way as "not found" (nil, nil) so a caller cannot use
+// this endpoint to distinguish "doesn't exist" from "isn't yours".
+func GetLdapForCaller(id string, isGlobalAdmin bool, callerOwner string) (*Ldap, error) {
+	ldap, err := GetLdap(id)
+	if err != nil || ldap == nil {
+		return ldap, err
+	}
+
+	if !isGlobalAdmin && ldap.Owner != callerOwner {
+		return nil, nil
+	}
+
+	return ldap, nil
+}
+
+// UpdateLdapForCaller updates the ldap record identified by ldap.Id, after
+// verifying (via GetLdapForCaller) that the caller is authorized to mutate
+// it. Non-global-admins additionally cannot use the update to move the
+// record to a different organization: their supplied Owner is ignored in
+// favor of the record's existing Owner.
+func UpdateLdapForCaller(ldap *Ldap, isGlobalAdmin bool, callerOwner string) (bool, error) {
+	prev, err := GetLdapForCaller(ldap.Id, isGlobalAdmin, callerOwner)
+	if err != nil || prev == nil {
+		return false, err
+	}
+
+	if !isGlobalAdmin {
+		ldap.Owner = prev.Owner
+	}
+
+	return UpdateLdap(ldap)
+}
+
+// DeleteLdapForCaller deletes the ldap record identified by id, after
+// verifying (via GetLdapForCaller) that the caller is authorized to delete
+// it.
+func DeleteLdapForCaller(id string, isGlobalAdmin bool, callerOwner string) (bool, error) {
+	prev, err := GetLdapForCaller(id, isGlobalAdmin, callerOwner)
+	if err != nil || prev == nil {
+		return false, err
+	}
+
+	return DeleteLdap(&Ldap{Id: id})
+}

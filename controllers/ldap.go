@@ -38,6 +38,28 @@ type LdapSyncResp struct {
 	Failed []object.LdapUser `json:"failed"`
 }
 
+// ldapCallerContext resolves the current caller's authorization context for
+// the ldap-* endpoints below: whether they are a global admin, and, if not,
+// their own organization. ldap records are looked up purely by their global
+// random Id (no tenancy of their own), so every handler that reads,
+// mutates, or deletes one must check the fetched record's Owner against
+// this caller-derived value — never against an owner the caller supplied in
+// the request itself (id prefix or body field), which is exactly what let
+// an org admin access another organization's LDAP config by spoofing that
+// value. Writes a "please sign in" error and returns ok=false when there is
+// no authenticated user to check against.
+func (c *ApiController) ldapCallerContext() (isGlobalAdmin bool, callerOwner string, ok bool) {
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	if isGlobalAdmin {
+		return true, "", true
+	}
+	if user == nil {
+		c.ResponseError(c.T("general:Please sign in first"))
+		return false, "", false
+	}
+	return false, user.Owner, true
+}
+
 // GetLdapUsers
 // @Title GetLdapser
 // @Tag Account API
@@ -53,7 +75,13 @@ func (c *ApiController) GetLdapUsers() {
 		c.ResponseError(err.Error())
 		return
 	}
-	ldapServer, err := object.GetLdap(ldapId)
+
+	isGlobalAdmin, callerOwner, ok := c.ldapCallerContext()
+	if !ok {
+		return
+	}
+
+	ldapServer, err := object.GetLdapForCaller(ldapId, isGlobalAdmin, callerOwner)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -139,7 +167,13 @@ func (c *ApiController) GetLdap() {
 		c.ResponseError(err.Error())
 		return
 	}
-	ldap, err := object.GetLdap(name)
+
+	isGlobalAdmin, callerOwner, ok := c.ldapCallerContext()
+	if !ok {
+		return
+	}
+
+	ldap, err := object.GetLdapForCaller(name, isGlobalAdmin, callerOwner)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -205,7 +239,12 @@ func (c *ApiController) UpdateLdap() {
 		return
 	}
 
-	prevLdap, err := object.GetLdap(ldap.Id)
+	isGlobalAdmin, callerOwner, ok := c.ldapCallerContext()
+	if !ok {
+		return
+	}
+
+	prevLdap, err := object.GetLdapForCaller(ldap.Id, isGlobalAdmin, callerOwner)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -215,7 +254,7 @@ func (c *ApiController) UpdateLdap() {
 		return
 	}
 
-	affected, err := object.UpdateLdap(&ldap)
+	affected, err := object.UpdateLdapForCaller(&ldap, isGlobalAdmin, callerOwner)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -250,7 +289,12 @@ func (c *ApiController) DeleteLdap() {
 		return
 	}
 
-	affected, err := object.DeleteLdap(&ldap)
+	isGlobalAdmin, callerOwner, ok := c.ldapCallerContext()
+	if !ok {
+		return
+	}
+
+	affected, err := object.DeleteLdapForCaller(ldap.Id, isGlobalAdmin, callerOwner)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -277,6 +321,22 @@ func (c *ApiController) SyncLdapUsers() {
 		c.ResponseError(err.Error())
 		return
 	}
+
+	isGlobalAdmin, callerOwner, ok := c.ldapCallerContext()
+	if !ok {
+		return
+	}
+
+	ldapServer, err := object.GetLdapForCaller(ldapId, isGlobalAdmin, callerOwner)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	if ldapServer == nil {
+		c.ResponseError(fmt.Sprintf(c.T("general:The LDAP: %s does not exist"), ldapId))
+		return
+	}
+
 	var users []object.LdapUser
 	err = json.Unmarshal(c.Ctx.Input.RequestBody, &users)
 	if err != nil {
