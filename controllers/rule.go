@@ -108,7 +108,7 @@ func (c *ApiController) AddRule() {
 		c.ResponseError(err.Error())
 		return
 	}
-	err = checkExpressions(rule.Expressions, rule.Type)
+	err = checkExpressions(rule.Owner, rule.Expressions, rule.Type)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -133,7 +133,7 @@ func (c *ApiController) UpdateRule() {
 		return
 	}
 
-	err = checkExpressions(rule.Expressions, rule.Type)
+	err = checkExpressions(rule.Owner, rule.Expressions, rule.Type)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -163,7 +163,7 @@ func (c *ApiController) DeleteRule() {
 	c.ServeJSON()
 }
 
-func checkExpressions(expressions []*object.Expression, ruleType string) error {
+func checkExpressions(owner string, expressions []*object.Expression, ruleType string) error {
 	values := make([]string, len(expressions))
 	for i, expression := range expressions {
 		values[i] = expression.Value
@@ -176,7 +176,7 @@ func checkExpressions(expressions []*object.Expression, ruleType string) error {
 	case "IP Rate Limiting":
 		return checkIpRateRule(expressions)
 	case "Compound":
-		return checkCompoundRules(values)
+		return checkCompoundRules(owner, values)
 	}
 	return nil
 }
@@ -220,10 +220,6 @@ func checkIpRateRule(expressions []*object.Expression) error {
 	return nil
 }
 
-func checkCompoundRules(rules []string) error {
-	_, err := object.GetRulesByRuleIds(rules)
-	if err != nil {
-		return err
-	}
-	return nil
+func checkCompoundRules(owner string, rules []string) error {
+	return object.CheckRulesOwnedBy(owner, rules)
 }

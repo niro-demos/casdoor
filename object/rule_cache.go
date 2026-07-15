@@ -55,3 +55,20 @@ func GetRulesByRuleIds(ids []string) ([]*Rule, error) {
 	}
 	return res, nil
 }
+
+// CheckRulesOwnedBy verifies that every rule referenced by ids is owned by
+// owner. It is used to stop a Compound rule (WAF/IP/rate-limit engine) from
+// referencing and incorporating a rule that belongs to a different
+// organization.
+func CheckRulesOwnedBy(owner string, ids []string) error {
+	rules, err := GetRulesByRuleIds(ids)
+	if err != nil {
+		return err
+	}
+	for _, rule := range rules {
+		if rule.Owner != owner {
+			return fmt.Errorf("rule: referenced rule %s/%s does not belong to organization %s", rule.Owner, rule.Name, owner)
+		}
+	}
+	return nil
+}
