@@ -17,6 +17,7 @@ package controllers
 import (
 	"encoding/xml"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -38,6 +39,65 @@ const (
 func queryUnescape(service string) string {
 	s, _ := url.QueryUnescape(service)
 	return s
+}
+
+// serviceMatchesIssuedService reports whether the presented service is
+// exactly the one a CAS ticket was issued for (after best-effort
+// query-unescaping). A caller-supplied service must never be accepted just
+// because it shares a leading substring with the issued one -- that would
+// let any string extension of a legitimate service URL redeem a ticket that
+// was never issued for it.
+func serviceMatchesIssuedService(service, issuedService string) bool {
+	return service == issuedService || queryUnescape(service) == issuedService
+}
+
+// isProxyCallbackIPAllowed reports whether ip is a permitted destination for
+// a CAS proxy-callback (pgtUrl) request. Loopback, unspecified, link-local,
+// and private/reserved addresses are never permitted, nor is the
+// well-known cloud instance-metadata address -- a caller must not be able to
+// direct the server to connect to its own internal network or the metadata
+// service by supplying an arbitrary pgtUrl.
+func isProxyCallbackIPAllowed(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsPrivate() {
+		return false
+	}
+	// AWS/GCP/Azure/OpenStack instance-metadata address.
+	if ip.Equal(net.IPv4(169, 254, 169, 254)) {
+		return false
+	}
+	return true
+}
+
+// ipResolver resolves a hostname to its candidate IP addresses. Production
+// code passes net.LookupIP; tests pass a fake so no real DNS lookup happens.
+type ipResolver func(host string) ([]net.IP, error)
+
+// isProxyCallbackHostAllowed reports whether host -- the pgtUrl's hostname --
+// is safe to connect to. IP-literal hosts (e.g. "127.0.0.1") are checked
+// directly without any DNS lookup; hostnames are resolved and every
+// candidate address they return must be allowed.
+func isProxyCallbackHostAllowed(host string, resolve ipResolver) (bool, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return isProxyCallbackIPAllowed(ip), nil
+	}
+
+	ips, err := resolve(host)
+	if err != nil {
+		return false, err
+	}
+	if len(ips) == 0 {
+		return false, fmt.Errorf("no addresses found for host %q", host)
+	}
+	for _, ip := range ips {
+		if !isProxyCallbackIPAllowed(ip) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (c *RootController) CasValidate() {
@@ -102,7 +162,7 @@ func (c *RootController) CasP3ProxyValidate() {
 	// find the token
 	if ok {
 		// check whether service is the one for which we previously issued token
-		if strings.HasPrefix(service, issuedService) || strings.HasPrefix(queryUnescape(service), issuedService) {
+		if serviceMatchesIssuedService(service, issuedService) {
 			serviceResponse.Success = response
 		} else {
 			// service not match
@@ -119,7 +179,6 @@ func (c *RootController) CasP3ProxyValidate() {
 		// that means we are in proxy web flow
 		pgt := object.StoreCasTokenForPgt(serviceResponse.Success, service, userId)
 		pgtiou := serviceResponse.Success.ProxyGrantingTicket
-		// todo: check whether it is https
 		pgtUrlObj, err := url.Parse(pgtUrl)
 		if err != nil {
 			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
@@ -128,6 +187,16 @@ func (c *RootController) CasP3ProxyValidate() {
 
 		if pgtUrlObj.Scheme != "https" {
 			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "callback is not https", format)
+			return
+		}
+
+		// Reject any pgtUrl whose host resolves to the server's own loopback,
+		// link-local, or private network -- otherwise a caller could direct
+		// the server to make blind outbound requests to arbitrary internal
+		// addresses (including the cloud metadata service) using the
+		// connection-error responses as a reconnaissance oracle.
+		if allowed, err := isProxyCallbackHostAllowed(pgtUrlObj.Hostname(), net.LookupIP); err != nil || !allowed {
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "callback host is not allowed", format)
 			return
 		}
 

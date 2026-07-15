@@ -268,11 +268,21 @@ func (c *ApiController) HandleLoggedIn(application *object.Application, user *ob
 		service := c.Ctx.Input.Query("service")
 		resp = wrapErrorResponse(nil)
 		if service != "" {
-			st, err := object.GenerateCasToken(userId, service)
-			if err != nil {
+			// A CAS ticket must only ever be issued for a service the target
+			// application has pre-registered in its redirect-URI allow list --
+			// the same guard GetApplicationLogin already applies before
+			// showing the login page. Without it, any logged-in user could
+			// have a ticket minted for an arbitrary, unregistered callback
+			// URL and have their full profile handed to it.
+			if err := object.CheckCasLogin(application, c.GetAcceptLanguage(), service); err != nil {
 				resp = wrapErrorResponse(err)
 			} else {
-				resp.Data = st
+				st, err := object.GenerateCasToken(userId, service)
+				if err != nil {
+					resp = wrapErrorResponse(err)
+				} else {
+					resp.Data = st
+				}
 			}
 		}
 
