@@ -429,6 +429,16 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		}, nil
 	}
 
+	// the refresh token must only be redeemable by the application it was
+	// actually issued to, mirroring the same check already performed for the
+	// authorization_code grant in GetAuthorizationCodeToken().
+	if application.Name != token.Application {
+		return &TokenError{
+			Error:            InvalidGrant,
+			ErrorDescription: "the refresh token is not issued to this application",
+		}, nil
+	}
+
 	// check if the token has been invalidated (e.g., by SSO logout)
 	if token.ExpiresIn <= 0 {
 		return &TokenError{
