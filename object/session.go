@@ -16,6 +16,8 @@ package object
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 
@@ -214,12 +216,17 @@ func DeleteSessionId(id string, sessionId string) (bool, error) {
 		return false, nil
 	}
 
+	// Callers only ever see the redacted (hashed) identifier returned by
+	// GetSessions/GetSingleSession, so resolve it back to the real, raw
+	// session-store id before touching the beego session store.
+	realSessionId := ResolveSessionId(session.SessionId, sessionId)
+
 	owner, _, application := util.GetOwnerAndNameAndOtherFromId(id)
 	if owner == CasdoorOrganization && application == CasdoorApplication {
-		DeleteBeegoSession([]string{sessionId})
+		DeleteBeegoSession([]string{realSessionId})
 	}
 
-	session.SessionId = util.DeleteVal(session.SessionId, sessionId)
+	session.SessionId = util.DeleteVal(session.SessionId, realSessionId)
 	if len(session.SessionId) == 0 {
 		return DeleteSession(id, "")
 	} else {
@@ -238,6 +245,61 @@ func DeleteBeegoSession(sessionIds []string) {
 
 func (session *Session) GetId() string {
 	return fmt.Sprintf("%s/%s/%s", session.Owner, session.Name, session.Application)
+}
+
+// HashSessionId returns a stable, one-way, non-replayable identifier derived
+// from a raw beego session-store id (the same value carried in the
+// casdoor_session_id auth cookie). Unlike the raw id, this hash cannot be
+// used to authenticate as the session's owner, so it is safe to expose to
+// admins who are only authorized to view session metadata.
+func HashSessionId(sessionId string) string {
+	sum := sha256.Sum256([]byte(sessionId))
+	return hex.EncodeToString(sum[:])
+}
+
+// RedactSessionForApi returns a copy of session with every raw, live
+// SessionId replaced by its non-replayable HashSessionId. Use this (never
+// the raw DB-fetched session) when serializing session data for an API
+// caller, so a live login cookie is never returned to anyone but its owner.
+func RedactSessionForApi(session *Session) *Session {
+	if session == nil {
+		return nil
+	}
+
+	redacted := *session
+	redacted.SessionId = make([]string, len(session.SessionId))
+	for i, sid := range session.SessionId {
+		redacted.SessionId[i] = HashSessionId(sid)
+	}
+	return &redacted
+}
+
+// RedactSessionsForApi applies RedactSessionForApi to a slice of sessions.
+func RedactSessionsForApi(sessions []*Session) []*Session {
+	redacted := make([]*Session, len(sessions))
+	for i, s := range sessions {
+		redacted[i] = RedactSessionForApi(s)
+	}
+	return redacted
+}
+
+// ResolveSessionId maps a value received from an API caller — which may be
+// either the raw session-store id or (after RedactSessionForApi) its
+// HashSessionId — back to the real, raw session id, so revocation can still
+// operate correctly even though callers never receive the raw id anymore.
+// Returns sessionIdOrHash unchanged if it matches no candidate.
+func ResolveSessionId(candidates []string, sessionIdOrHash string) string {
+	if slices.Contains(candidates, sessionIdOrHash) {
+		return sessionIdOrHash
+	}
+
+	for _, sid := range candidates {
+		if HashSessionId(sid) == sessionIdOrHash {
+			return sid
+		}
+	}
+
+	return sessionIdOrHash
 }
 
 func IsSessionDuplicated(id string, sessionId string) (bool, error) {

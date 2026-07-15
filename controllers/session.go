@@ -47,7 +47,7 @@ func (c *ApiController) GetSessions() {
 			return
 		}
 
-		c.ResponseOk(sessions)
+		c.ResponseOk(object.RedactSessionsForApi(sessions))
 	} else {
 		limit := util.ParseInt(limit)
 		count, err := object.GetSessionCount(owner, field, value)
@@ -62,7 +62,7 @@ func (c *ApiController) GetSessions() {
 			return
 		}
 
-		c.ResponseOk(sessions, paginator.Nums())
+		c.ResponseOk(object.RedactSessionsForApi(sessions), paginator.Nums())
 	}
 }
 
@@ -82,7 +82,7 @@ func (c *ApiController) GetSingleSession() {
 		return
 	}
 
-	c.ResponseOk(session)
+	c.ResponseOk(object.RedactSessionForApi(session))
 }
 
 // UpdateSession
@@ -141,7 +141,10 @@ func (c *ApiController) DeleteSession() {
 	curSessionId := c.Ctx.Input.CruSession.SessionID(context.Background())
 
 	sessionId := c.Ctx.Input.Query("sessionId")
-	if curSessionId == sessionId && sessionId != "" {
+	// sessionId, as seen by the client, is the redacted identifier returned
+	// by GetSessions/GetSingleSession (object.HashSessionId), not the raw
+	// session id — so compare against both forms.
+	if sessionId != "" && (curSessionId == sessionId || object.HashSessionId(curSessionId) == sessionId) {
 		c.ResponseError(fmt.Sprintf(c.T("session:session id %s is the current session and cannot be deleted"), curSessionId))
 		return
 	}
