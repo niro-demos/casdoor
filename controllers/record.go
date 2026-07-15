@@ -16,6 +16,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/beego/beego/v2/core/utils/pagination"
 	"github.com/casdoor/casdoor/object"
@@ -45,7 +46,7 @@ func (c *ApiController) GetRecords() {
 	organizationName := c.Ctx.Input.Query("organizationName")
 
 	if limit == "" || page == "" {
-		records, err := object.GetRecords()
+		records, err := object.GetRecords(organization)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
@@ -114,12 +115,33 @@ func (c *ApiController) GetRecordsByFilter() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /add-record [post]
 func (c *ApiController) AddRecord() {
+	_, ok := c.RequireAdmin()
+	if !ok {
+		return
+	}
+
 	var record object.Record
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &record)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
+
+	// Never trust the caller's identity/network fields from the request
+	// body - derive who made this call, from what organization, and from
+	// what IP, from the authenticated session and the real request instead,
+	// so a caller cannot misattribute an action to another user, org, or IP
+	// in the audit trail. Mirrors the derivation routers/record.go
+	// AfterRecordMessage() already performs for auto-generated records.
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(c.GetSessionUsername())
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	record.Organization = owner
+	record.User = name
+	record.ClientIp = strings.Replace(util.GetClientIpFromRequest(c.Ctx.Request), ": ", "", -1)
+	record.IsTriggered = false
 
 	c.Data["json"] = wrapActionResponse(object.AddRecord(&record))
 	c.ServeJSON()

@@ -175,9 +175,19 @@ func GetRecordCount(field, value string, filterRecord *Record) (int64, error) {
 	return session.Count(filterRecord)
 }
 
-func GetRecords() ([]*Record, error) {
+// GetRecords returns audit records ordered by id, descending. When
+// organization is non-empty, results are scoped to that organization only -
+// callers must pass "" solely for a true instance-wide administrator (see
+// controllers.ApiController.RequireAdmin, which returns "" only for a
+// built-in-org/global admin), never for an org-scoped admin, or every
+// organization's audit trail would be exposed to that org.
+func GetRecords(organization string) ([]*Record, error) {
 	records := []*Record{}
-	err := ormer.Engine.Desc("id").Find(&records)
+	session := ormer.Engine.Desc("id")
+	if organization != "" {
+		session = session.Where("organization = ?", organization)
+	}
+	err := session.Find(&records)
 	if err != nil {
 		return records, err
 	}
