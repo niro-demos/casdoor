@@ -99,6 +99,26 @@ func (c *ApiController) GetToken() {
 	c.ResponseOk(token)
 }
 
+// requireOwnToken rejects the request unless the token record's "user"
+// field names the caller's own account. It responds with an error and
+// returns non-nil when the request should be denied.
+func (c *ApiController) requireOwnToken(token *object.Token) error {
+	userId := c.GetSessionUsername()
+	_, userName, err := util.GetOwnerAndNameFromIdWithError(userId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return err
+	}
+
+	if token.User == "" || token.User != userName {
+		err = fmt.Errorf("unauthorized")
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return err
+	}
+
+	return nil
+}
+
 // UpdateToken
 // @Title UpdateToken
 // @Tag Token API
@@ -115,6 +135,17 @@ func (c *ApiController) UpdateToken() {
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
+	}
+
+	// A token's "user" field is what routers/auto_signin_filter.go trusts to
+	// establish the authenticated identity for any Bearer token presented.
+	// A non-admin caller must never be able to persist a Token row whose
+	// user differs from their own identity — that would let them mint a
+	// credential that authenticates as someone else.
+	if !c.IsAdmin() {
+		if err := c.requireOwnToken(&token); err != nil {
+			return
+		}
 	}
 
 	c.Data["json"] = wrapActionResponse(object.UpdateToken(id, &token, c.IsGlobalAdmin()))
@@ -134,6 +165,14 @@ func (c *ApiController) AddToken() {
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
+	}
+
+	// See UpdateToken: a non-admin caller must only ever be able to create a
+	// Token row for their own account.
+	if !c.IsAdmin() {
+		if err := c.requireOwnToken(&token); err != nil {
+			return
+		}
 	}
 
 	c.Data["json"] = wrapActionResponse(object.AddToken(&token))

@@ -146,6 +146,17 @@ func (c *ApiController) GetTransaction() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-transaction [post]
 func (c *ApiController) UpdateTransaction() {
+	// UpdateTransaction always re-applies the transaction's balance delta
+	// (object.UpdateTransaction), so it must never be reachable by a
+	// non-admin caller — legitimate balance changes only ever come from a
+	// verified, completed Payment (see AddInternalPaymentTransaction /
+	// AddExternalPaymentTransaction in object/payment.go and
+	// object/order_pay.go).
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	var transaction object.Transaction
@@ -177,6 +188,17 @@ func (c *ApiController) AddTransaction() {
 
 	dryRunParam := c.Ctx.Input.Query("dryRun")
 	dryRun := dryRunParam != ""
+
+	// A dry run only validates (object.AddTransaction never inserts a row or
+	// touches balance when dryRun is true), so it is safe for any caller.
+	// The live path mints real spendable balance with no payment
+	// verification, so it must be restricted to admin/service callers —
+	// legitimate credits always come from a verified Payment via
+	// AddInternalPaymentTransaction / AddExternalPaymentTransaction.
+	if !dryRun && !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
 
 	affected, transactionId, err := object.AddTransaction(&transaction, c.GetAcceptLanguage(), dryRun)
 	if err != nil {

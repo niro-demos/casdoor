@@ -123,6 +123,17 @@ func (c *ApiController) GetSubscription() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-subscription [post]
 func (c *ApiController) UpdateSubscription() {
+	// A subscription's state/payment linkage is the source of truth for paid
+	// access; it must only ever be changed by an admin (e.g. via the payment
+	// callback path), never accepted directly from a non-admin caller's
+	// request body. The self-service Casbin bypass would otherwise let any
+	// caller edit a subscription record that happens to share their own
+	// owner/name.
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	var subscription object.Subscription
@@ -144,6 +155,17 @@ func (c *ApiController) UpdateSubscription() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /add-subscription [post]
 func (c *ApiController) AddSubscription() {
+	// Real paid subscriptions are only ever created server-side from a
+	// verified, completed Payment (see NewSubscription/AddSubscription calls
+	// in object/order_pay.go, driven by the place-order/pay-order flow).
+	// This endpoint must not let a non-admin caller mint an Active
+	// subscription (for themselves or, via the "user" field, for anyone
+	// else) with no payment behind it at all.
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	var subscription object.Subscription
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &subscription)
 	if err != nil {

@@ -49,6 +49,57 @@ type ObjectWithOrg struct {
 	Organization string `json:"organization"`
 }
 
+// ObjectWithUser is used to additionally recover a request body's "user"
+// field, see userScopedWritePaths and resolveUserScopedObjectName below.
+type ObjectWithUser struct {
+	Object
+	User string `json:"user"`
+}
+
+// userScopedWritePaths are non-GET endpoints whose request body's own
+// owner/name identify a record the caller can legitimately self-service
+// (e.g. their own subscription, transaction or token row), but which also
+// carries a separate "user" field naming the actual account the write
+// affects (who gets the paid subscription, whose balance is credited, who
+// the token authenticates as).
+//
+// The built-in Casbin API model (object/init.go initBuiltInApiModel) ends
+// with an unconditional self-service bypass:
+//
+//	... || (r.subOwner == r.objOwner && r.subName == r.objName)
+//
+// That bypass only ever compares the caller's identity against objOwner/
+// objName. If objName came from the record's own "name" field, a caller
+// could keep owner/name equal to their own identity (satisfying the
+// bypass) while setting "user" to a different, more privileged account,
+// and act on that account's behalf with no policy check at all. For these
+// paths we instead resolve objName from the body's "user" field so the
+// self-bypass can only succeed when the caller is acting on their own
+// account.
+var userScopedWritePaths = map[string]bool{
+	"/api/add-subscription":    true,
+	"/api/update-subscription": true,
+	"/api/add-transaction":     true,
+	"/api/update-transaction":  true,
+	"/api/add-token":           true,
+	"/api/update-token":        true,
+}
+
+// resolveUserScopedObjectName returns the identity that should be used as
+// objName for authorization purposes: the body's "user" field for
+// userScopedWritePaths when present, otherwise fallbackName unchanged.
+func resolveUserScopedObjectName(path string, body []byte, fallbackName string) string {
+	if !userScopedWritePaths[path] {
+		return fallbackName
+	}
+
+	var objWithUser ObjectWithUser
+	if err := json.Unmarshal(body, &objWithUser); err != nil || objWithUser.User == "" {
+		return fallbackName
+	}
+	return objWithUser.User
+}
+
 // ownerNameFromForm parses form or multipart body for authorization checks when the
 // request is not JSON (e.g. MFA APIs use FormData). RequestBodyFilter caches the raw
 // body but leaves Request.Body restorable for ParseForm/ParseMultipartForm.
@@ -216,7 +267,7 @@ func getObject(ctx *context.Context) (string, string, error) {
 				o, n := ownerNameFromForm(ctx)
 				return o, n, nil
 			}
-			return objWithOrg.Organization, objWithOrg.Name, nil
+			return objWithOrg.Organization, resolveUserScopedObjectName(path, body, objWithOrg.Name), nil
 		}
 
 		err := json.Unmarshal(body, &obj)
@@ -237,7 +288,7 @@ func getObject(ctx *context.Context) (string, string, error) {
 			}
 		}
 
-		return obj.Owner, obj.Name, nil
+		return obj.Owner, resolveUserScopedObjectName(path, body, obj.Name), nil
 	}
 }
 
