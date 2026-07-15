@@ -39,7 +39,6 @@ func InitApi() {
 	if true {
 		ruleText := `
 p, built-in, *, *, *, *, *
-p, app, *, *, *, *, *
 p, app-dcr, *, *, /api/login/oauth/*, *, *
 p, app-dcr, *, *, /api/get-oauth-token, *, *
 p, app-dcr, *, *, /api/userinfo, *, *
@@ -171,9 +170,34 @@ func IsAllowed(subOwner string, subName string, method string, urlPath string, o
 	}
 
 	if subOwner == "app" {
-		return true, nil
+		// An authenticated OAuth application principal (a client_id/client_secret
+		// pair) is fast-tracked for its own organization only: holding valid
+		// credentials for one tenant's application must not grant access to
+		// another organization's resources. routers/base.go's
+		// getUsernameByClientIdSecret already resolves the authenticated
+		// application's own organization (including the shared-app "-org-"
+		// override) and stashes it in extraInfo, so it can be compared against
+		// the resource being acted on here, the same way a user principal's
+		// owner is compared against objOwner below.
+		//
+		// A request for a *different* organization - or with no owner-scoped
+		// object at all - is deliberately NOT auto-denied here: it falls
+		// through to the same casbin policy / CheckApiPermission checks a user
+		// principal goes through below, so endpoints that are intentionally
+		// public (signup, login, token validation, upload-resource, ...) keep
+		// working for an app principal exactly as they do for anyone else -
+		// they just no longer get a blanket bypass for resources outside the
+		// app's own organization.
+		appOrganization, _ := extraInfo["appOrganization"].(string)
+		if objOwner != "" && objOwner == appOrganization {
+			return true, nil
+		}
 	}
 
+	// object.GetUser(util.GetId("app", subName)) below is always nil (no such
+	// user row exists), so an "app" principal that fell through the block
+	// above safely skips the admin branches and proceeds to the same
+	// Enforcer/CheckApiPermission check as any other principal.
 	user, err := object.GetUser(util.GetId(subOwner, subName))
 	if err != nil {
 		return false, err

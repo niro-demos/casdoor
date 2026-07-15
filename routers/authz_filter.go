@@ -291,10 +291,21 @@ func getExtraInfo(ctx *context.Context, urlPath string) map[string]interface{} {
 			return nil
 		}
 
-		return map[string]interface{}{
+		extra = map[string]interface{}{
 			"detailPathUrl": method,
 		}
 	}
+
+	// Forward the authenticated OAuth application's own organization (stashed by
+	// getUsernameByClientIdSecret) so authz.IsAllowed() can scope an "app"
+	// principal to its own organization.
+	if appOrganization, ok := ctx.Input.GetData("appOrganization").(string); ok {
+		if extra == nil {
+			extra = map[string]interface{}{}
+		}
+		extra["appOrganization"] = appOrganization
+	}
+
 	return extra
 }
 

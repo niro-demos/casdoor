@@ -138,7 +138,36 @@ func (c *ApiController) GetProvider() {
 		return
 	}
 
+	// GET /api/get-provider is reachable by any caller, including an
+	// unauthenticated one, at the authz layer: a couple of pre-login UI flows
+	// (the Telegram login widget, the QR-code payment page) need to read a
+	// specific provider's public config before the caller has a session. That
+	// is only safe for categories which are meant to be public; every other
+	// category carries connector/infrastructure config (OAuth/SAML client IDs,
+	// LDAP/Storage/Email/SMS hosts and ports, etc.) that must only be readable
+	// by an authenticated member of the provider's own organization, or a
+	// global admin - the same rule already enforced for
+	// Add/Update/DeleteProvider via requireProviderPermission.
+	if provider != nil && !isPubliclyReadableProviderCategory(provider.Category) {
+		if ok := c.requireProviderPermission(provider); !ok {
+			return
+		}
+	}
+
 	c.ResponseOk(object.GetMaskedProvider(provider, isMaskEnabled))
+}
+
+// publiclyReadableProviderCategories are the provider categories an
+// unauthenticated caller may read via GetProvider. Keep this list narrow:
+// only categories with a genuine pre-login UI consumer belong here (see
+// web/src/auth/TelegramLogin.js and web/src/QrCodePage.js).
+var publiclyReadableProviderCategories = map[string]bool{
+	"Payment":      true,
+	"Notification": true,
+}
+
+func isPubliclyReadableProviderCategory(category string) bool {
+	return publiclyReadableProviderCategories[category]
 }
 
 func (c *ApiController) requireProviderPermission(provider *object.Provider) bool {
@@ -147,7 +176,7 @@ func (c *ApiController) requireProviderPermission(provider *object.Provider) boo
 		return true
 	}
 
-	if provider.Owner == "admin" || user.Owner != provider.Owner {
+	if user == nil || provider.Owner == "admin" || user.Owner != provider.Owner {
 		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return false
 	}

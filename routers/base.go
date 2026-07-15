@@ -143,6 +143,12 @@ func getUsernameByClientIdSecret(ctx *context.Context) (string, error) {
 		return "", fmt.Errorf("Incorrect client secret for application: %s", application.Name)
 	}
 
+	// Stash the authenticated application's own organization (already resolved,
+	// including the shared-app "-org-" override, by GetApplicationByClientId
+	// above) so authz.IsAllowed() can scope this "app" principal to its own
+	// organization instead of granting it instance-wide access.
+	ctx.Input.SetData("appOrganization", application.Organization)
+
 	for _, tag := range application.Tags {
 		if tag == "dcr" {
 			return fmt.Sprintf("app-dcr/%s", application.Name), nil
