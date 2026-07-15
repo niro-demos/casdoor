@@ -219,7 +219,7 @@ func (c *ApiController) DeleteOrganization() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.DeleteOrganization(&organization))
+	c.Data["json"] = wrapActionResponse(object.DeleteOrganization(&organization, c.IsGlobalAdmin(), c.GetAcceptLanguage()))
 	c.ServeJSON()
 }
 

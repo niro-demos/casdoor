@@ -15,6 +15,7 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -302,9 +303,20 @@ func deleteOrganization(organization *Organization) (bool, error) {
 	return affected != 0, nil
 }
 
-func DeleteOrganization(organization *Organization) (bool, error) {
+func DeleteOrganization(organization *Organization, isGlobalAdmin bool, lang string) (bool, error) {
 	if organization.Name == "built-in" {
 		return false, nil
+	}
+
+	// Deleting an organization is an instance-wide destructive operation: it
+	// permanently removes the tenant and locks out every one of its users.
+	// It must be reserved for a global/instance admin, mirroring the
+	// protection AddOrganization already gets from the create-side checks -
+	// an org-scoped admin (IsAdmin == true but not IsGlobalAdmin()) must not
+	// be able to delete their own organization just because the authz
+	// owner-match shortcut lets the request reach this function.
+	if !isGlobalAdmin {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
 	return deleteOrganization(organization)
