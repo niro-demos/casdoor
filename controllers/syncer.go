@@ -204,7 +204,7 @@ func (c *ApiController) TestSyncerDb() {
 		return
 	}
 
-	err = object.TestSyncer(syncer)
+	err = object.TestSyncer(syncer, c.IsGlobalAdmin())
 	if err != nil {
 		c.ResponseError(err.Error())
 		return

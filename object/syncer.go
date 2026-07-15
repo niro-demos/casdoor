@@ -17,12 +17,62 @@ package object
 import (
 	"errors"
 	"fmt"
+	"net"
+	"time"
 
 	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
 	"golang.org/x/crypto/ssh"
 )
+
+// syncerTestConnectionTimeout bounds how long a syncer connection test
+// (object.TestSyncer) may take before it is treated as failed. Without a
+// bound, a client-chosen host:port that accepts a TCP connection but never
+// completes the target protocol's handshake (e.g. pointing a "mysql" syncer
+// test at an HTTP port) hangs indefinitely, which -- combined with an
+// immediate "connection refused" for closed ports -- gives an unbounded
+// open-vs-closed timing oracle. A var (not const) so tests can shrink it.
+var syncerTestConnectionTimeout = 3 * time.Second
+
+// isRestrictedSyncerAddr reports whether ip is a loopback, RFC1918 private,
+// or link-local address. Link-local (169.254.0.0/16) also covers the common
+// cloud metadata endpoint (169.254.169.254).
+func isRestrictedSyncerAddr(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// validateSyncerHost rejects a syncer connection-test destination that
+// resolves to a loopback/private/link-local address, unless the caller is a
+// global admin. A global admin is trusted to point a syncer at internal
+// deployment infrastructure -- that's the feature's primary legitimate use.
+// An organization-scoped admin is not: without this check, the syncer
+// connection-test endpoint lets any org admin use the Casdoor server as an
+// internal-network port scanner (TC-BDBFFE41).
+//
+// The hostname is resolved and the resolved IP(s) are checked, not the
+// literal string, so a DNS name that resolves to an internal address can't
+// bypass the check (DNS rebinding).
+func validateSyncerHost(host string, isGlobalAdmin bool) error {
+	if isGlobalAdmin || host == "" {
+		return nil
+	}
+
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		// Resolution failure isn't a restricted-destination finding; it will
+		// surface as a connection error from the dial itself.
+		return nil
+	}
+
+	for _, ip := range ips {
+		if isRestrictedSyncerAddr(ip) {
+			return fmt.Errorf("the target host %q resolves to a restricted network address (%s); only a global admin can test-connect a syncer to an internal or loopback address", host, ip.String())
+		}
+	}
+
+	return nil
+}
 
 type TableColumn struct {
 	Name        string   `json:"name"`
@@ -324,7 +374,11 @@ func RunSyncer(syncer *Syncer) error {
 	return syncer.syncUsers()
 }
 
-func TestSyncer(syncer Syncer) error {
+func TestSyncer(syncer Syncer, isGlobalAdmin bool) error {
+	if err := validateSyncerHost(syncer.Host, isGlobalAdmin); err != nil {
+		return err
+	}
+
 	oldSyncer, err := getSyncer(syncer.Owner, syncer.Name)
 	if err != nil {
 		return err
@@ -335,7 +389,21 @@ func TestSyncer(syncer Syncer) error {
 	}
 
 	provider := GetSyncerProvider(&syncer)
-	return provider.TestConnection()
+
+	// Bound the whole test-connection call so a destination that accepts a
+	// TCP connection but never completes the protocol handshake can't be
+	// distinguished from a slow-but-legitimate one by hanging indefinitely.
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- provider.TestConnection()
+	}()
+
+	select {
+	case err := <-resultCh:
+		return err
+	case <-time.After(syncerTestConnectionTimeout):
+		return fmt.Errorf("connection test timed out after %s", syncerTestConnectionTimeout)
+	}
 }
 
 func (syncer *Syncer) Close() error {
