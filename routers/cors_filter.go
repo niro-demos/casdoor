@@ -78,10 +78,12 @@ func CorsFilter(ctx *context.Context) {
 		return
 	}
 
-	if ctx.Request.RequestURI == "/api/userinfo" {
-		setCorsHeaders(ctx, origin)
-		return
-	}
+	// /api/userinfo (and every other route not special-cased above) must go
+	// through the same allowlist check below: same-host, intranet, or a
+	// registered application redirect URI via object.IsOriginAllowed(). It
+	// used to unconditionally reflect the caller's Origin with credentials
+	// allowed, letting any attacker-controlled site read a signed-in user's
+	// OIDC claims cross-site via a credentialed fetch().
 
 	if origin != "" {
 		if origin == originConf {
