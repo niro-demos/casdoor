@@ -680,6 +680,9 @@ func GetMaskedUser(user *User, isAdminOrSelf bool, errs ...error) (*User, error)
 	}
 
 	if !isAdminOrSelf {
+		if user.PasswordSalt != "" {
+			user.PasswordSalt = "***"
+		}
 		if user.OriginalToken != "" {
 			user.OriginalToken = "***"
 		}

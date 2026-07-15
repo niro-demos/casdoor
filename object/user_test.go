@@ -132,6 +132,46 @@ func TestGetMaskedUsers(t *testing.T) {
 	}
 }
 
+func TestGetMaskedUserMasksPasswordSalt(t *testing.T) {
+	// Regression test for TC-7DA53EE0: GetMaskedUser() masked Password to
+	// "***" for non-admin, non-self viewers, but left PasswordSalt --
+	// real server-side password-verification material (see
+	// object/check.go's CheckPassword / credManager.IsPasswordCorrect) --
+	// untouched. GetFilteredUser() only zeroes fields that have a matching
+	// accountItems entry, and no org config maps an accountItems name to
+	// the PasswordSalt field, so the salt was returned in full to any org
+	// member who could view another member's profile at all, even when
+	// the org's "Password" accountItem viewRule is "Self".
+	user := &User{Owner: "acme", Name: "bob", Password: "casbin", PasswordSalt: "84dcc35d0bce4f2c028e"}
+
+	got, err := GetMaskedUser(user, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Password != "***" {
+		t.Errorf("GetMaskedUser(isAdminOrSelf=false): Password = %q, want masked", got.Password)
+	}
+	if got.PasswordSalt != "***" {
+		t.Errorf("GetMaskedUser(isAdminOrSelf=false): PasswordSalt = %q, want masked -- a non-admin, non-self viewer must not receive another user's raw password salt", got.PasswordSalt)
+	}
+}
+
+func TestGetMaskedUserKeepsOwnPasswordSaltForSelf(t *testing.T) {
+	// Positive control: a user viewing their own profile (or an admin)
+	// must still be able to see the passwordSalt -- the Self/Admin
+	// viewRule path must keep working, isolating the bug above to the
+	// non-admin, non-self case rather than breaking self-view entirely.
+	user := &User{Owner: "acme", Name: "bob", Password: "casbin", PasswordSalt: "84dcc35d0bce4f2c028e"}
+
+	got, err := GetMaskedUser(user, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PasswordSalt != "84dcc35d0bce4f2c028e" {
+		t.Errorf("GetMaskedUser(isAdminOrSelf=true): PasswordSalt = %q, want unmasked original value", got.PasswordSalt)
+	}
+}
+
 func TestGetUserByField(t *testing.T) {
 	InitConfig()
 
