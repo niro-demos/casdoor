@@ -141,7 +141,7 @@ func (c *ApiController) UpdatePermission() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdatePermission(id, &permission))
+	c.Data["json"] = wrapActionResponse(object.UpdatePermission(id, &permission, c.IsGlobalAdmin(), c.GetAcceptLanguage()))
 	c.ServeJSON()
 }
 

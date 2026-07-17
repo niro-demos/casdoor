@@ -15,8 +15,10 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
 )
@@ -103,7 +105,7 @@ func GetForm(id string) (*Form, error) {
 	return getForm(owner, name)
 }
 
-func UpdateForm(id string, form *Form) (bool, error) {
+func UpdateForm(id string, form *Form, isGlobalAdmin bool, lang string) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
@@ -117,6 +119,10 @@ func UpdateForm(id string, form *Form) (bool, error) {
 	}
 	if form == nil {
 		return false, nil
+	}
+
+	if !isGlobalAdmin && existingForm.Owner != form.Owner {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
 	_, err = ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(form)

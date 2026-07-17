@@ -15,8 +15,10 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
 )
@@ -103,15 +105,20 @@ func GetTicket(id string) (*Ticket, error) {
 	return getTicket(owner, name)
 }
 
-func UpdateTicket(id string, ticket *Ticket) (bool, error) {
+func UpdateTicket(id string, ticket *Ticket, isGlobalAdmin bool, lang string) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
 	}
-	if t, err := getTicket(owner, name); err != nil {
+	oldTicket, err := getTicket(owner, name)
+	if err != nil {
 		return false, err
-	} else if t == nil {
+	} else if oldTicket == nil {
 		return false, nil
+	}
+
+	if !isGlobalAdmin && oldTicket.Owner != ticket.Owner {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
 	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(ticket)
@@ -158,5 +165,5 @@ func AddTicketMessage(id string, message *TicketMessage) (bool, error) {
 	}
 
 	ticket.Messages = append(ticket.Messages, message)
-	return UpdateTicket(id, ticket)
+	return UpdateTicket(id, ticket, true, "")
 }

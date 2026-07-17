@@ -185,7 +185,7 @@ func (c *ApiController) UpdateTicket() {
 		ticket.CreatedTime = existingTicket.CreatedTime
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdateTicket(id, &ticket))
+	c.Data["json"] = wrapActionResponse(object.UpdateTicket(id, &ticket, c.IsGlobalAdmin(), c.GetAcceptLanguage()))
 	c.ServeJSON()
 }
 
