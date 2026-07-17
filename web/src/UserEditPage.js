@@ -15,7 +15,7 @@
 import React from "react";
 import {
   Button, Card, Col, Form, Input, InputNumber, Layout, List,
-  Menu, Result, Row, Select, Space, Switch, Tabs, Tag, Tooltip
+  Menu, Modal, Result, Row, Select, Space, Switch, Tabs, Tag, Tooltip
 } from "antd";
 import {withRouter} from "react-router-dom";
 import {TotpMfaType} from "./auth/MfaSetupPage";
@@ -78,6 +78,9 @@ class UserEditPage extends React.Component {
       consents: [],
       activeMenuKey: window.location.hash?.slice(1) || "",
       menuMode: "Horizontal",
+      mfaReauthModalVisible: false,
+      mfaReauthPassword: "",
+      mfaReauthAction: null,
     };
   }
 
@@ -279,7 +282,7 @@ class UserEditPage extends React.Component {
     return this.props.account.countryCode;
   }
 
-  deleteMfa = () => {
+  deleteMfa = (password) => {
     this.setState({
       RemoveMfaLoading: true,
     });
@@ -287,6 +290,7 @@ class UserEditPage extends React.Component {
     DeleteMfa({
       owner: this.state.user.owner,
       name: this.state.user.name,
+      password: password,
     }).then((res) => {
       if (res.status === "ok") {
         Setting.showMessage("success", i18next.t("general:Successfully deleted"));
@@ -294,13 +298,58 @@ class UserEditPage extends React.Component {
           multiFactorAuths: res.data,
         });
       } else {
-        Setting.showMessage("error", i18next.t("general:Failed to delete"));
+        Setting.showMessage("error", res.msg || i18next.t("general:Failed to delete"));
       }
     }).finally(() => {
       this.setState({
         RemoveMfaLoading: false,
       });
     });
+  };
+
+  setPreferredMfa = (mfaType, password) => {
+    MfaBackend.SetPreferredMfa({
+      owner: this.state.user.owner,
+      name: this.state.user.name,
+      mfaType: mfaType,
+      password: password,
+    }).then((res) => {
+      if (res.status === "ok") {
+        this.setState({
+          multiFactorAuths: res.data,
+        });
+      } else {
+        Setting.showMessage("error", res.msg || i18next.t("general:Failed to save"));
+      }
+    });
+  };
+
+  // Disabling MFA or switching the preferred MFA method weakens (or changes)
+  // the account's authentication posture, so when the viewer is acting on
+  // their *own* MFA the server requires their current password to be
+  // re-submitted alongside the request (an already-open session is not, by
+  // itself, proof the request is really theirs). An admin acting on another
+  // user's MFA doesn't know that user's password and isn't asked for one —
+  // that path calls `action` directly, unaffected.
+  runMfaReauthAction = (action) => {
+    if (this.isSelf()) {
+      this.setState({mfaReauthModalVisible: true, mfaReauthPassword: "", mfaReauthAction: action});
+    } else {
+      action("");
+    }
+  };
+
+  submitMfaReauthAction = () => {
+    if (!this.state.mfaReauthPassword) {
+      Setting.showMessage("error", i18next.t("login:Please input your password!"));
+      return;
+    }
+    const action = this.state.mfaReauthAction;
+    const password = this.state.mfaReauthPassword;
+    this.setState({mfaReauthModalVisible: false, mfaReauthPassword: "", mfaReauthAction: null});
+    if (action) {
+      action(password);
+    }
   };
 
   handleVerifyIdentification = () => {
@@ -1119,7 +1168,7 @@ class UserEditPage extends React.Component {
                     <PopconfirmModal
                       text={i18next.t("general:Disable")}
                       title={i18next.t("general:Sure to disable") + "?"}
-                      onConfirm={() => this.deleteMfa()}
+                      onConfirm={() => this.runMfaReauthAction((password) => this.deleteMfa(password))}
                       size="small"
                     /> : null
                   }
@@ -1146,18 +1195,7 @@ class UserEditPage extends React.Component {
                               {i18next.t("mfa:preferred")}
                             </Tag> :
                             <Button type="primary" style={{marginRight: 20}} onClick={() => {
-                              const values = {
-                                owner: this.state.user.owner,
-                                name: this.state.user.name,
-                                mfaType: item.mfaType,
-                              };
-                              MfaBackend.SetPreferredMfa(values).then((res) => {
-                                if (res.status === "ok") {
-                                  this.setState({
-                                    multiFactorAuths: res.data,
-                                  });
-                                }
-                              });
+                              this.runMfaReauthAction((password) => this.setPreferredMfa(item.mfaType, password));
                             }}>
                               {i18next.t("mfa:Set preferred")}
                             </Button>
@@ -1612,6 +1650,23 @@ class UserEditPage extends React.Component {
               {this.state.mode === "add" ? <Button style={{marginLeft: "20px"}} size="large" onClick={() => this.deleteUser()}>{i18next.t("general:Cancel")}</Button> : null}
             </div>
         }
+        <Modal
+          title={i18next.t("mfa:Multi-factor authentication")}
+          open={this.state.mfaReauthModalVisible}
+          onOk={() => this.submitMfaReauthAction()}
+          onCancel={() => this.setState({mfaReauthModalVisible: false, mfaReauthPassword: "", mfaReauthAction: null})}
+          okText={i18next.t("general:OK")}
+          cancelText={i18next.t("general:Cancel")}
+          destroyOnClose
+        >
+          <p>{i18next.t("login:Please input your password!")}</p>
+          <Input.Password
+            value={this.state.mfaReauthPassword}
+            autoFocus
+            onChange={(e) => this.setState({mfaReauthPassword: e.target.value})}
+            onPressEnter={() => this.submitMfaReauthAction()}
+          />
+        </Modal>
       </div>
     );
   }

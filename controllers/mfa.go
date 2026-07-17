@@ -277,13 +277,15 @@ func (c *ApiController) MfaSetupEnable() {
 // @Title DeleteMfa
 // @Tag MFA API
 // @Description Delete MFA
-// @Param   owner formData string true "The owner of the user"
-// @Param   name  formData string true "The name of the user"
+// @Param   owner    formData string true  "The owner of the user"
+// @Param   name     formData string true  "The name of the user"
+// @Param   password formData string false "The caller's current password. Required when disabling your own MFA; not required (and not known) when an admin resets another user's MFA."
 // @Success 200 {object} controllers.Response The Response object
 // @router /delete-mfa/ [post]
 func (c *ApiController) DeleteMfa() {
 	owner := c.Ctx.Request.Form.Get("owner")
 	name := c.Ctx.Request.Form.Get("name")
+	password := c.Ctx.Request.Form.Get("password")
 	userId := util.GetId(owner, name)
 
 	user, err := object.GetUser(userId)
@@ -293,6 +295,11 @@ func (c *ApiController) DeleteMfa() {
 	}
 	if user == nil {
 		c.ResponseError("User doesn't exist")
+		return
+	}
+
+	if err = c.checkMfaReauthIfSelf(user, password); err != nil {
+		c.ResponseError(err.Error())
 		return
 	}
 
@@ -305,19 +312,43 @@ func (c *ApiController) DeleteMfa() {
 	c.ResponseOk(object.GetAllMfaProps(user, true))
 }
 
+// checkMfaReauthIfSelf re-verifies the caller's current password before an
+// operation that weakens an account's authentication posture (disabling MFA,
+// changing the preferred MFA method) is applied to the caller's *own*
+// account. A valid session cookie is not, by itself, sufficient proof that
+// the request wasn't made with a stolen/replayed session — the caller must
+// additionally still know the account's current password.
+//
+// When the caller is acting on someone *else's* account (e.g. an org/global
+// admin resetting a locked-out user's MFA), this check is skipped: that
+// action is already gated by the authorization filter (ApiFilter ->
+// authz.IsAllowed), and the admin cannot be expected to know the target
+// user's password.
+func (c *ApiController) checkMfaReauthIfSelf(user *object.User, password string) error {
+	requester := c.getCurrentUser()
+	isSelf := requester == nil || (requester.Owner == user.Owner && requester.Name == user.Name)
+	if !isSelf {
+		return nil
+	}
+
+	return object.CheckPassword(user, password, c.GetAcceptLanguage())
+}
+
 // SetPreferredMfa
 // @Title SetPreferredMfa
 // @Tag MFA API
 // @Description Set preferred MFA
-// @Param   mfaType formData string true "The MFA type to set as preferred"
-// @Param   owner   formData string true "The owner of the user"
-// @Param   name    formData string true "The name of the user"
+// @Param   mfaType  formData string true  "The MFA type to set as preferred"
+// @Param   owner    formData string true  "The owner of the user"
+// @Param   name     formData string true  "The name of the user"
+// @Param   password formData string false "The caller's current password. Required when changing your own preferred MFA method; not required (and not known) when an admin acts on another user's MFA."
 // @Success 200 {object} controllers.Response The Response object
 // @router /set-preferred-mfa [post]
 func (c *ApiController) SetPreferredMfa() {
 	mfaType := c.Ctx.Request.Form.Get("mfaType")
 	owner := c.Ctx.Request.Form.Get("owner")
 	name := c.Ctx.Request.Form.Get("name")
+	password := c.Ctx.Request.Form.Get("password")
 	userId := util.GetId(owner, name)
 
 	user, err := object.GetUser(userId)
@@ -327,6 +358,11 @@ func (c *ApiController) SetPreferredMfa() {
 	}
 	if user == nil {
 		c.ResponseError("User doesn't exist")
+		return
+	}
+
+	if err = c.checkMfaReauthIfSelf(user, password); err != nil {
+		c.ResponseError(err.Error())
 		return
 	}
 

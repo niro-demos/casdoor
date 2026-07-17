@@ -62,6 +62,9 @@ export function DeleteMfa(values) {
   const formData = new FormData();
   formData.append("owner", values.owner);
   formData.append("name", values.name);
+  if (values.password) {
+    formData.append("password", values.password);
+  }
   return fetch(`${Setting.ServerUrl}/api/delete-mfa`, {
     method: "POST",
     credentials: "include",
@@ -74,6 +77,9 @@ export function SetPreferredMfa(values) {
   formData.append("mfaType", values.mfaType);
   formData.append("owner", values.owner);
   formData.append("name", values.name);
+  if (values.password) {
+    formData.append("password", values.password);
+  }
   return fetch(`${Setting.ServerUrl}/api/set-preferred-mfa`, {
     method: "POST",
     credentials: "include",
