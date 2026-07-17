@@ -249,21 +249,20 @@ func GetWebFinger(resource string, rels []string, host string, applicationName s
 	}
 
 	resourceType := resourceSplit[0]
-	resourceValue := resourceSplit[1]
 
 	oidcDiscovery := GetOidcDiscovery(host, applicationName)
 
 	switch resourceType {
 	case "acct":
-		user, err := GetUserByEmailOnly(resourceValue)
-		if err != nil {
-			return wf, err
-		}
-
-		if user == nil {
-			return wf, fmt.Errorf("user not found")
-		}
-
+		// Deliberately do not gate the response on whether resourceValue
+		// resolves to a registered account: WebFinger is an unauthenticated,
+		// public discovery endpoint, and returning a distinct "not found"
+		// shape for unregistered identities would let anyone enumerate valid
+		// usernames/emails (including admin accounts) by probing this
+		// endpoint. The issuer for a given host/application is the same
+		// regardless of whether the specific account exists, so there is no
+		// functional need to look the user up here at all -- always return
+		// the same success shape for any syntactically valid "acct:" resource.
 		wf.Subject = resource
 
 		for _, rel := range rels {
