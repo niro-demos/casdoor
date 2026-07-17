@@ -42,7 +42,17 @@ func (c *ApiController) GetTransactions() {
 		var transactions []*object.Transaction
 		var err error
 
-		if c.IsAdmin() {
+		isGlobalAdmin, user := c.isGlobalAdmin()
+		if user == nil && !isGlobalAdmin {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+		if !isGlobalAdmin && user.Owner != owner {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+
+		if isGlobalAdmin || user.IsAdmin {
 			// If field is "user", filter by that user even for admins
 			if field == "user" && value != "" {
 				transactions, err = object.GetUserTransactions(owner, value)
@@ -50,13 +60,7 @@ func (c *ApiController) GetTransactions() {
 				transactions, err = object.GetTransactions(owner)
 			}
 		} else {
-			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
-			if userErr != nil {
-				c.ResponseError(userErr.Error())
-				return
-			}
-			transactions, err = object.GetUserTransactions(owner, userName)
+			transactions, err = object.GetUserTransactions(owner, user.Name)
 		}
 
 		if err != nil {
@@ -68,16 +72,20 @@ func (c *ApiController) GetTransactions() {
 	} else {
 		limit := util.ParseInt(limit)
 
+		isGlobalAdmin, user := c.isGlobalAdmin()
+		if user == nil && !isGlobalAdmin {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+		if !isGlobalAdmin && user.Owner != owner {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+
 		// Apply user filter for non-admin users
-		if !c.IsAdmin() {
-			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
-			if userErr != nil {
-				c.ResponseError(userErr.Error())
-				return
-			}
+		if !isGlobalAdmin && !user.IsAdmin {
 			field = "user"
-			value = userName
+			value = user.Name
 		}
 
 		count, err := object.GetTransactionCount(owner, field, value)
@@ -118,17 +126,17 @@ func (c *ApiController) GetTransaction() {
 		return
 	}
 
-	// Check if non-admin user is trying to access someone else's transaction
-	if !c.IsAdmin() {
-		user := c.GetSessionUsername()
-		_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
-		if userErr != nil {
-			c.ResponseError(userErr.Error())
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	if !isGlobalAdmin {
+		if user == nil {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
 			return
 		}
-
-		// Only allow users to view their own transactions
-		if transaction.User != userName {
+		if transaction.Owner != user.Owner {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+		if !user.IsAdmin && transaction.User != user.Name {
 			c.ResponseError(c.T("auth:Unauthorized operation"))
 			return
 		}

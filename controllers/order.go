@@ -42,7 +42,17 @@ func (c *ApiController) GetOrders() {
 		var orders []*object.Order
 		var err error
 
-		if c.IsAdmin() {
+		isGlobalAdmin, user := c.isGlobalAdmin()
+		if user == nil && !isGlobalAdmin {
+			c.ResponseError("Forbidden")
+			return
+		}
+		if !isGlobalAdmin && user.Owner != owner {
+			c.ResponseError("Forbidden")
+			return
+		}
+
+		if isGlobalAdmin || user.IsAdmin {
 			// If field is "user", filter by that user even for admins
 			if field == "user" && value != "" {
 				orders, err = object.GetUserOrders(owner, value)
@@ -50,13 +60,7 @@ func (c *ApiController) GetOrders() {
 				orders, err = object.GetOrders(owner)
 			}
 		} else {
-			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
-			if userErr != nil {
-				c.ResponseError(userErr.Error())
-				return
-			}
-			orders, err = object.GetUserOrders(owner, userName)
+			orders, err = object.GetUserOrders(owner, user.Name)
 		}
 
 		if err != nil {
@@ -67,15 +71,18 @@ func (c *ApiController) GetOrders() {
 		c.ResponseOk(orders)
 	} else {
 		limit := util.ParseInt(limit)
-		if !c.IsAdmin() {
-			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
-			if userErr != nil {
-				c.ResponseError(userErr.Error())
-				return
-			}
+		isGlobalAdmin, user := c.isGlobalAdmin()
+		if user == nil && !isGlobalAdmin {
+			c.ResponseError("Forbidden")
+			return
+		}
+		if !isGlobalAdmin && user.Owner != owner {
+			c.ResponseError("Forbidden")
+			return
+		}
+		if !isGlobalAdmin && !user.IsAdmin {
 			field = "user"
-			value = userName
+			value = user.Name
 		}
 		count, err := object.GetOrderCount(owner, field, value)
 		if err != nil {

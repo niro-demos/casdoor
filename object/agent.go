@@ -69,6 +69,8 @@ func UpdateAgent(id string, agent *Agent) (bool, error) {
 		return false, nil
 	}
 
+	agent.Owner = owner
+	agent.Name = name
 	agent.UpdatedTime = util.GetCurrentTime()
 
 	_, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(agent)

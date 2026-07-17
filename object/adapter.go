@@ -112,6 +112,8 @@ func UpdateAdapter(id string, adapter *Adapter) (bool, error) {
 		}
 	}
 
+	adapter.Owner = owner
+	adapter.Name = name
 	session := ormer.Engine.ID(core.PK{owner, name}).AllCols()
 	if adapter.Password == "***" {
 		session.Omit("password")

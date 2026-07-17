@@ -198,8 +198,38 @@ func (c *ApiController) AddKey() {
 		return
 	}
 
+	if !c.requireKeyPermission(&key) {
+		return
+	}
+
 	c.Data["json"] = wrapActionResponse(object.AddKey(&key))
 	c.ServeJSON()
+}
+
+func (c *ApiController) requireKeyPermission(key *object.Key) bool {
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	if isGlobalAdmin {
+		return true
+	}
+	if user == nil || key.Owner != user.Owner {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return false
+	}
+
+	switch key.Type {
+	case "User":
+		if key.Organization != user.Owner {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return false
+		}
+	case "Organization", "Application":
+		if key.Organization != "" && key.Organization != user.Owner {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return false
+		}
+	}
+
+	return true
 }
 
 // DeleteKey

@@ -137,17 +137,24 @@ func (c *ApiController) GetProvider() {
 		c.ResponseError(err.Error())
 		return
 	}
+	if !c.requireProviderPermission(provider) {
+		return
+	}
 
 	c.ResponseOk(object.GetMaskedProvider(provider, isMaskEnabled))
 }
 
 func (c *ApiController) requireProviderPermission(provider *object.Provider) bool {
+	if provider == nil {
+		return true
+	}
+
 	isGlobalAdmin, user := c.isGlobalAdmin()
 	if isGlobalAdmin {
 		return true
 	}
 
-	if provider.Owner == "admin" || user.Owner != provider.Owner {
+	if user == nil || provider.Owner == "admin" || user.Owner != provider.Owner {
 		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return false
 	}
