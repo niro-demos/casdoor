@@ -746,12 +746,36 @@ func GetFilteredUser(user *User, isAdmin bool, isAdminOrSelf bool, accountItems 
 		lowerCaseAccountItemName = strings.ReplaceAll(lowerCaseAccountItemName, " ", "")
 
 		switch accountItem.Name {
+		case "Password":
+			// The "Password" accountItem's ViewRule also governs the
+			// password-hash metadata stored alongside it. The exact-name
+			// match below only covers the "password" field itself, so its
+			// siblings must be zeroed explicitly here or they leak
+			// unfiltered to any non-Self/non-Admin viewer.
+			for _, siblingFieldName := range []string{"PasswordSalt", "PasswordType"} {
+				if idx, ok := userFieldMap[strings.ToLower(siblingFieldName)]; ok {
+					reflectedUser.Field(idx).SetZero()
+				}
+			}
 		case "Multi-factor authentication":
 			lowerCaseAccountItemName = strings.ToLower("PreferredMfaType")
 		case "User type":
 			lowerCaseAccountItemName = "type"
 		case "Country/Region":
 			lowerCaseAccountItemName = "region"
+		case "3rd-party logins":
+			// "3rd-party logins" has no single matching struct field -- the
+			// data lives across the ~80 individual OAuth/Web3 provider
+			// fields (GitHub..Custom10 below). Zero the whole contiguous
+			// block explicitly instead of silently skipping the item.
+			startIdx, startOk := userFieldMap[strings.ToLower("GitHub")]
+			endIdx, endOk := userFieldMap[strings.ToLower("Custom10")]
+			if startOk && endOk {
+				for i := startIdx; i <= endIdx; i++ {
+					reflectedUser.Field(i).SetZero()
+				}
+			}
+			continue
 		case "ID card info":
 			{
 				infoKeys := []string{"idCardWithPerson", "idCardFront", "idCardWithPerson"}
