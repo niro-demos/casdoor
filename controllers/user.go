@@ -674,6 +674,33 @@ func (c *ApiController) SetPassword() {
 		return
 	}
 
+	// The password just changed: invalidate every other active session and
+	// access token for this account so a session cookie or access token
+	// issued under the old credential can't keep authenticating. This
+	// mirrors the "logout from all sessions" path in SsoLogout().
+	owner, name := targetUser.Owner, targetUser.Name
+	if _, err = object.ExpireTokenByUser(owner, name); err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	sessions, err := object.GetUserSessions(owner, name)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	var sessionIds []string
+	for _, s := range sessions {
+		sessionIds = append(sessionIds, s.SessionId...)
+	}
+	object.DeleteBeegoSession(sessionIds)
+
+	if _, err = object.DeleteAllUserSessions(owner, name); err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	c.ResponseOk()
 }
 
