@@ -65,6 +65,34 @@ func GetPaginationEnforcers(owner string, offset, limit int, field, value, sortF
 	return enforcers, nil
 }
 
+// checkEnforcerAdapterOwner enforces that an Enforcer's Adapter always
+// belongs to the same organization as the Enforcer itself. An Enforcer is
+// just a named pointer at a Model + Adapter; the Adapter is where an
+// organization's real Casbin policy rows live, so an enforcer whose Adapter
+// is owned by a different organization would let whoever owns that enforcer
+// row read and write the other organization's live policy data merely by
+// registering a self-owned enforcer that points at it. The Model is exempt
+// on purpose: models are shared, non-tenant-specific rule syntax (e.g.
+// built-in/user-model-built-in is used by virtually every organization's
+// enforcer) and referencing one across organizations is not a tenant
+// boundary violation.
+func checkEnforcerAdapterOwner(enforcerOwner string, adapterId string) error {
+	if adapterId == "" {
+		return nil
+	}
+
+	adapterOwner, _, err := util.GetOwnerAndNameFromIdWithError(adapterId)
+	if err != nil {
+		return err
+	}
+
+	if adapterOwner != enforcerOwner {
+		return fmt.Errorf("the adapter: %s does not belong to the organization: %s, unauthorized operation", adapterId, enforcerOwner)
+	}
+
+	return nil
+}
+
 func getEnforcer(owner string, name string) (*Enforcer, error) {
 	if owner == "" || name == "" {
 		return nil, nil
@@ -102,6 +130,12 @@ func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
 		return false, nil
 	}
 
+	// Validate against the enforcer's real, trusted owner (from id), not the
+	// caller-supplied enforcer.Owner in the request body.
+	if err := checkEnforcerAdapterOwner(owner, enforcer.Adapter); err != nil {
+		return false, err
+	}
+
 	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(enforcer)
 	if err != nil {
 		return false, err
@@ -111,6 +145,10 @@ func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
 }
 
 func AddEnforcer(enforcer *Enforcer) (bool, error) {
+	if err := checkEnforcerAdapterOwner(enforcer.Owner, enforcer.Adapter); err != nil {
+		return false, err
+	}
+
 	affected, err := ormer.Engine.Insert(enforcer)
 	if err != nil {
 		return false, err
@@ -146,6 +184,17 @@ func (enforcer *Enforcer) InitEnforcer() error {
 	}
 	if enforcer.Adapter == "" {
 		return fmt.Errorf("the adapter for enforcer: %s should not be empty", enforcer.GetId())
+	}
+
+	// Defense in depth: re-check the owner invariant here too, in case an
+	// Enforcer row with a cross-organization Adapter reference already
+	// exists in the database (legacy data, or any future path that bypasses
+	// AddEnforcer/UpdateEnforcer's own guard). Every caller that resolves an
+	// enforcer's real Casbin adapter to read or write policy data
+	// (GetInitializedEnforcer, and therefore AddPolicy/RemovePolicy/
+	// UpdatePolicy/GetFilteredPolicies) goes through this method.
+	if err := checkEnforcerAdapterOwner(enforcer.Owner, enforcer.Adapter); err != nil {
+		return err
 	}
 
 	m, err := GetModel(enforcer.Model)
@@ -202,6 +251,13 @@ func GetPolicies(id string) ([]*xormadapter.CasbinRule, error) {
 	}
 	if enforcer == nil {
 		return nil, fmt.Errorf("the enforcer: %s is not found", id)
+	}
+
+	// Same cross-organization guard as InitEnforcer: GetPolicies resolves
+	// the adapter directly rather than going through InitEnforcer, so it
+	// needs its own check.
+	if err := checkEnforcerAdapterOwner(enforcer.Owner, enforcer.Adapter); err != nil {
+		return nil, err
 	}
 
 	a, err := GetAdapter(enforcer.Adapter)
