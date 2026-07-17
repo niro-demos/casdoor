@@ -21,27 +21,26 @@ import (
 	"os"
 	"testing"
 
-	"github.com/beego/beego/v2/server/web"
 	"github.com/xorm-io/core"
 )
+
+var tenantIsolationStoreInitialized bool
 
 func initTenantIsolationTestOrm(t *testing.T) {
 	t.Helper()
 
-	if ormer != nil {
+	if tenantIsolationStoreInitialized {
 		return
 	}
 
-	t.Setenv("driverName", "sqlite")
-	t.Setenv("dataSourceName", t.TempDir()+"/casdoor-security-test.db")
-	t.Setenv("dbName", "")
-
-	createDatabase = false
-	if err := web.LoadAppConfig("ini", "../conf/app.conf"); err != nil {
-		t.Fatalf("failed to load app config: %v", err)
+	adapter, err := NewAdapter("sqlite", t.TempDir()+"/casdoor-security-test.db", "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	InitAdapter()
+	ormer = adapter
+	createDatabase = false
 	CreateTables()
+	tenantIsolationStoreInitialized = true
 }
 
 func TestConfigObjectUpdatesKeepUrlOwner(t *testing.T) {

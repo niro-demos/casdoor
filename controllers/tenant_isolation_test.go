@@ -29,16 +29,18 @@ import (
 	"github.com/casdoor/casdoor/object"
 )
 
-//go:linkname testOrmer github.com/casdoor/casdoor/object.ormer
-var testOrmer *object.Ormer
+//go:linkname tenantIsolationOrmer github.com/casdoor/casdoor/object.ormer
+var tenantIsolationOrmer *object.Ormer
 
-//go:linkname testCreateDatabase github.com/casdoor/casdoor/object.createDatabase
-var testCreateDatabase bool
+//go:linkname tenantIsolationCreateDatabase github.com/casdoor/casdoor/object.createDatabase
+var tenantIsolationCreateDatabase bool
+
+var controllerIsolationStoreInitialized bool
 
 func initControllerIsolationTestOrm(t *testing.T) {
 	t.Helper()
 
-	if testOrmer != nil {
+	if controllerIsolationStoreInitialized {
 		return
 	}
 
@@ -46,13 +48,16 @@ func initControllerIsolationTestOrm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create sqlite test dir: %v", err)
 	}
-	t.Setenv("driverName", "sqlite")
-	t.Setenv("dataSourceName", dbDir+"/casdoor-controller-security-test.db")
-	t.Setenv("dbName", "")
 
-	testCreateDatabase = false
-	object.InitAdapter()
+	adapter, err := object.NewAdapter("sqlite", dbDir+"/casdoor-controller-security-test.db", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tenantIsolationOrmer = adapter
+	tenantIsolationCreateDatabase = false
 	object.CreateTables()
+	controllerIsolationStoreInitialized = true
 }
 
 func TestAddKeyRejectsCrossOrganizationUserBinding(t *testing.T) {
@@ -71,7 +76,7 @@ func TestAddKeyRejectsCrossOrganizationUserBinding(t *testing.T) {
 		t.Fatalf("expected same-organization key binding to remain allowed, got status=%q msg=%q", resp.Status, resp.Msg)
 	}
 	t.Cleanup(func() {
-		_, _ = testOrmer.Engine.Delete(&legitKey)
+		_, _ = tenantIsolationOrmer.Engine.Delete(&legitKey)
 	})
 
 	key := object.Key{
@@ -97,19 +102,19 @@ func TestProviderSecretReadRequiresProviderOwner(t *testing.T) {
 		Owner: "admin", Name: "foreign-provider", DisplayName: "foreign",
 		Category: "Social", Type: "Google", ClientId: "client", ClientSecret: "private-secret",
 	}
-	if _, err := testOrmer.Engine.Insert(provider); err != nil {
+	if _, err := tenantIsolationOrmer.Engine.Insert(provider); err != nil {
 		t.Fatalf("failed to seed provider: %v", err)
 	}
 	ownProvider := &object.Provider{
 		Owner: "acme", Name: "own-provider", DisplayName: "own",
 		Category: "Social", Type: "Google", ClientId: "client", ClientSecret: "own-secret",
 	}
-	if _, err := testOrmer.Engine.Insert(ownProvider); err != nil {
+	if _, err := tenantIsolationOrmer.Engine.Insert(ownProvider); err != nil {
 		t.Fatalf("failed to seed own provider: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = testOrmer.Engine.Delete(provider)
-		_, _ = testOrmer.Engine.Delete(ownProvider)
+		_, _ = tenantIsolationOrmer.Engine.Delete(provider)
+		_, _ = tenantIsolationOrmer.Engine.Delete(ownProvider)
 	})
 
 	controller, recorder := newIsolationController(t, http.MethodGet, "/api/get-provider?id=acme/own-provider&withSecret=1", "acme/acme-admin", nil)
@@ -138,7 +143,7 @@ func TestTransactionReadsRequireSessionOwner(t *testing.T) {
 		Application: "app-built-in", Domain: "internal.example", Category: object.TransactionCategoryPurchase,
 		Provider: "private-provider", Payment: "private-payment", Amount: 42, Currency: "USD",
 	}
-	if _, err := testOrmer.Engine.Insert(tx); err != nil {
+	if _, err := tenantIsolationOrmer.Engine.Insert(tx); err != nil {
 		t.Fatalf("failed to seed transaction: %v", err)
 	}
 	ownTx := &object.Transaction{
@@ -146,12 +151,12 @@ func TestTransactionReadsRequireSessionOwner(t *testing.T) {
 		Application: "app-acme", Domain: "acme.example", Category: object.TransactionCategoryPurchase,
 		Provider: "acme-provider", Payment: "acme-payment", Amount: 7, Currency: "USD",
 	}
-	if _, err := testOrmer.Engine.Insert(ownTx); err != nil {
+	if _, err := tenantIsolationOrmer.Engine.Insert(ownTx); err != nil {
 		t.Fatalf("failed to seed own transaction: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = testOrmer.Engine.Delete(tx)
-		_, _ = testOrmer.Engine.Delete(ownTx)
+		_, _ = tenantIsolationOrmer.Engine.Delete(tx)
+		_, _ = tenantIsolationOrmer.Engine.Delete(ownTx)
 	})
 
 	controller, recorder := newIsolationController(t, http.MethodGet, "/api/get-transaction?id=acme/own-transaction", "acme/alice", nil)
@@ -191,19 +196,19 @@ func TestOrderListRequiresSessionOwner(t *testing.T) {
 		Owner: "built-in", Name: "foreign-order", User: "alice",
 		Payment: "private-payment", Price: 77, Currency: "USD", State: "Paid", Message: "private order",
 	}
-	if _, err := testOrmer.Engine.Insert(order); err != nil {
+	if _, err := tenantIsolationOrmer.Engine.Insert(order); err != nil {
 		t.Fatalf("failed to seed order: %v", err)
 	}
 	ownOrder := &object.Order{
 		Owner: "acme", Name: "own-order", User: "alice",
 		Payment: "acme-payment", Price: 11, Currency: "USD", State: "Paid", Message: "own order",
 	}
-	if _, err := testOrmer.Engine.Insert(ownOrder); err != nil {
+	if _, err := tenantIsolationOrmer.Engine.Insert(ownOrder); err != nil {
 		t.Fatalf("failed to seed own order: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = testOrmer.Engine.Delete(order)
-		_, _ = testOrmer.Engine.Delete(ownOrder)
+		_, _ = tenantIsolationOrmer.Engine.Delete(order)
+		_, _ = tenantIsolationOrmer.Engine.Delete(ownOrder)
 	})
 
 	controller, recorder := newIsolationController(t, http.MethodGet, "/api/get-orders?owner=acme", "acme/alice", nil)
@@ -232,14 +237,14 @@ func seedIsolationUsers(t *testing.T) {
 		{Owner: "acme", Name: "alice", IsAdmin: false},
 	}
 	for _, user := range users {
-		_, _ = testOrmer.Engine.Delete(user)
-		if _, err := testOrmer.Engine.Insert(user); err != nil {
+		_, _ = tenantIsolationOrmer.Engine.Delete(user)
+		if _, err := tenantIsolationOrmer.Engine.Insert(user); err != nil {
 			t.Fatalf("failed to seed user %s/%s: %v", user.Owner, user.Name, err)
 		}
 	}
 	t.Cleanup(func() {
 		for _, user := range users {
-			_, _ = testOrmer.Engine.Delete(user)
+			_, _ = tenantIsolationOrmer.Engine.Delete(user)
 		}
 	})
 }
