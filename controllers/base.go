@@ -57,6 +57,33 @@ func (c *ApiController) IsAdmin() bool {
 	return isGlobalAdmin || user.IsAdmin
 }
 
+// isAdminForOrg is the pure authorization decision behind IsAdminForOrg: a
+// global admin may act on any organization's data, but an org-scoped admin
+// (IsAdmin == true, Owner != "built-in") may only act on data owned by their
+// own organization. IsAdmin() alone conflates "is *some* kind of admin" with
+// "is authorized for *this* org" - callers that gate cross-tenant reads must
+// use this instead. No I/O, safe to unit test directly.
+func isAdminForOrg(isGlobalAdmin bool, user *object.User, owner string) bool {
+	if isGlobalAdmin {
+		return true
+	}
+	if user == nil {
+		return false
+	}
+	return user.IsAdmin && user.Owner == owner
+}
+
+// IsAdminForOrg returns true if the caller is a global admin, or an
+// org-scoped admin whose own Owner matches owner. Use this instead of
+// IsAdmin() wherever the data being gated belongs to a specific
+// organization (e.g. orders/payments/transactions filtered by "owner"),
+// so that an admin scoped to org A cannot read org B's records merely by
+// being *some* kind of admin.
+func (c *ApiController) IsAdminForOrg(owner string) bool {
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	return isAdminForOrg(isGlobalAdmin, user, owner)
+}
+
 func (c *ApiController) IsAdminOrSelf(user2 *object.User) bool {
 	isGlobalAdmin, user := c.isGlobalAdmin()
 	if isGlobalAdmin || (user != nil && user.IsAdmin) {

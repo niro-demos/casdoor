@@ -42,13 +42,18 @@ func (c *ApiController) GetTransactions() {
 		var transactions []*object.Transaction
 		var err error
 
-		if c.IsAdmin() {
+		if c.IsAdminForOrg(owner) {
 			// If field is "user", filter by that user even for admins
 			if field == "user" && value != "" {
 				transactions, err = object.GetUserTransactions(owner, value)
 			} else {
 				transactions, err = object.GetTransactions(owner)
 			}
+		} else if c.IsAdmin() {
+			// An admin scoped to a different organization than the requested
+			// owner - not their own data and not global-admin territory.
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
 		} else {
 			user := c.GetSessionUsername()
 			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
@@ -69,7 +74,13 @@ func (c *ApiController) GetTransactions() {
 		limit := util.ParseInt(limit)
 
 		// Apply user filter for non-admin users
-		if !c.IsAdmin() {
+		if !c.IsAdminForOrg(owner) {
+			if c.IsAdmin() {
+				// An admin scoped to a different organization than the
+				// requested owner.
+				c.ResponseError(c.T("auth:Unauthorized operation"))
+				return
+			}
 			user := c.GetSessionUsername()
 			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
 			if userErr != nil {

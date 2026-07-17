@@ -329,7 +329,7 @@ func GetAllowedApplications(applications []*Application, userId string, lang str
 	}
 
 	if user.IsAdmin {
-		return applications, nil
+		return filterApplicationsForOrgAdmin(user, applications, lang)
 	}
 
 	res := []*Application{}
@@ -345,6 +345,22 @@ func GetAllowedApplications(applications []*Application, userId string, lang str
 		}
 	}
 	return res, nil
+}
+
+// filterApplicationsForOrgAdmin enforces the org boundary for an org-scoped
+// admin (IsAdmin == true; a true global admin never reaches here, see
+// isUserIdGlobalAdmin above). It reuses User.IsApplicationAdmin - the one
+// existing per-application authorization check the codebase already has for
+// exactly this purpose - instead of returning every application in the
+// requested organization to any admin regardless of which organization they
+// actually administer. Pure function: no I/O, safe to unit test directly.
+func filterApplicationsForOrgAdmin(user *User, applications []*Application, lang string) ([]*Application, error) {
+	for _, application := range applications {
+		if !user.IsApplicationAdmin(application) {
+			return nil, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
+		}
+	}
+	return applications, nil
 }
 
 func checkMultipleCaptchaProviders(application *Application, lang string) error {

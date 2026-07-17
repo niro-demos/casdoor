@@ -14,7 +14,10 @@
 
 package object
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRedirectUriMatchesPattern(t *testing.T) {
 	tests := []struct {
@@ -76,4 +79,51 @@ func TestRedirectUriMatchesPattern(t *testing.T) {
 			t.Errorf("redirectUriMatchesPattern(%q, %q) = %v, want %v", tt.redirectUri, tt.targetUri, got, tt.want)
 		}
 	}
+}
+
+// TestFilterApplicationsForOrgAdmin covers the pure decision behind
+// filterApplicationsForOrgAdmin (object/application_util.go), the
+// root-cause fix for TC-44A41C6A: GetAllowedApplications special-cased
+// user.IsAdmin and returned every application in the requested organization
+// without checking that the caller's Owner matched that organization (or
+// application.IsShared).
+func TestFilterApplicationsForOrgAdmin(t *testing.T) {
+	orgScopedAdmin := &User{Owner: "acme", Name: "acme-admin", IsAdmin: true}
+
+	ownOrgApp := &Application{Owner: "admin", Name: "app-acme", Organization: "acme"}
+	otherOrgApp := &Application{Owner: "admin", Name: "app-built-in", Organization: "built-in"}
+	sharedApp := &Application{Owner: "admin", Name: "app-shared", Organization: "built-in", IsShared: true}
+
+	t.Run("own org applications are returned", func(t *testing.T) {
+		got, err := filterApplicationsForOrgAdmin(orgScopedAdmin, []*Application{ownOrgApp}, "en")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0] != ownOrgApp {
+			t.Fatalf("filterApplicationsForOrgAdmin() = %v, want [ownOrgApp]", got)
+		}
+	})
+
+	t.Run("shared applications from another org are returned", func(t *testing.T) {
+		got, err := filterApplicationsForOrgAdmin(orgScopedAdmin, []*Application{sharedApp}, "en")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0] != sharedApp {
+			t.Fatalf("filterApplicationsForOrgAdmin() = %v, want [sharedApp]", got)
+		}
+	})
+
+	t.Run("another org's non-shared applications are denied, not filtered to empty", func(t *testing.T) {
+		got, err := filterApplicationsForOrgAdmin(orgScopedAdmin, []*Application{otherOrgApp}, "en")
+		if err == nil {
+			t.Fatalf("expected an authorization error, got applications: %v", got)
+		}
+		if !strings.Contains(err.Error(), "Unauthorized") {
+			t.Fatalf("expected an \"Unauthorized operation\" error, got: %v", err)
+		}
+		if got != nil {
+			t.Fatalf("expected no applications on denial, got: %v", got)
+		}
+	})
 }

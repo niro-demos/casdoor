@@ -42,13 +42,18 @@ func (c *ApiController) GetOrders() {
 		var orders []*object.Order
 		var err error
 
-		if c.IsAdmin() {
+		if c.IsAdminForOrg(owner) {
 			// If field is "user", filter by that user even for admins
 			if field == "user" && value != "" {
 				orders, err = object.GetUserOrders(owner, value)
 			} else {
 				orders, err = object.GetOrders(owner)
 			}
+		} else if c.IsAdmin() {
+			// An admin scoped to a different organization than the requested
+			// owner - not their own data and not global-admin territory.
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
 		} else {
 			user := c.GetSessionUsername()
 			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
@@ -67,7 +72,13 @@ func (c *ApiController) GetOrders() {
 		c.ResponseOk(orders)
 	} else {
 		limit := util.ParseInt(limit)
-		if !c.IsAdmin() {
+		if !c.IsAdminForOrg(owner) {
+			if c.IsAdmin() {
+				// An admin scoped to a different organization than the
+				// requested owner.
+				c.ResponseError(c.T("auth:Unauthorized operation"))
+				return
+			}
 			user := c.GetSessionUsername()
 			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
 			if userErr != nil {
@@ -144,14 +155,14 @@ func (c *ApiController) GetOrder() {
 		return
 	}
 
-	if !c.IsAdmin() {
+	if order != nil && !c.IsAdminForOrg(order.Owner) {
 		sessionUser := c.GetSessionUsername()
 		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
-		if order != nil && (order.Owner != sessionUserOwner || order.User != sessionUserName) {
+		if order.Owner != sessionUserOwner || order.User != sessionUserName {
 			c.ResponseError("Forbidden")
 			return
 		}
