@@ -84,6 +84,13 @@ func (c *ApiController) SendEmail() {
 			c.ResponseError(err.Error())
 			return
 		}
+		if provider == nil {
+			// object.GetProvider() returns (nil, nil) — not an error — when no
+			// Provider row matches the caller-supplied name. Without this check
+			// the nil provider flows into object.SendEmail() below and panics.
+			c.ResponseError(fmt.Sprintf(c.T("util:The provider: %s is not found"), emailForm.Provider))
+			return
+		}
 	} else {
 		// called by Casdoor SDK via Client ID & Client Secret, so the used Email provider will be the application' Email provider or the default Email provider
 		provider, err = c.GetProviderFromContext("Email")
