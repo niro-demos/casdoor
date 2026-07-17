@@ -192,6 +192,7 @@ func (c *ApiController) GetOAuthToken() {
 	subjectTokenType := c.Ctx.Input.Query("subject_token_type")
 	audience := c.Ctx.Input.Query("audience")
 	resource := c.Ctx.Input.Query("resource")
+	redirectUri := c.Ctx.Input.Query("redirect_uri")
 
 	if clientId == "" && clientSecret == "" {
 		clientId, clientSecret, _ = c.Ctx.Request.BasicAuth()
@@ -255,6 +256,9 @@ func (c *ApiController) GetOAuthToken() {
 			}
 			if resource == "" {
 				resource = tokenRequest.Resource
+			}
+			if redirectUri == "" {
+				redirectUri = tokenRequest.RedirectUri
 			}
 			if assertion == "" {
 				assertion = tokenRequest.Assertion
@@ -347,7 +351,7 @@ func (c *ApiController) GetOAuthToken() {
 		return
 	}
 
-	token, err := object.GetOAuthToken(grantType, clientId, clientSecret, code, verifier, scope, nonce, username, password, host, refreshToken, tag, avatar, c.GetAcceptLanguage(), subjectToken, subjectTokenType, assertion, clientAssertion, clientAssertionType, audience, resource, dpopProof)
+	token, err := object.GetOAuthToken(grantType, clientId, clientSecret, code, verifier, scope, nonce, username, password, host, refreshToken, tag, avatar, c.GetAcceptLanguage(), subjectToken, subjectTokenType, assertion, clientAssertion, clientAssertionType, audience, resource, redirectUri, dpopProof)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return

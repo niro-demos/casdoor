@@ -46,6 +46,7 @@ type Token struct {
 	CodeExpireIn     int64  `json:"codeExpireIn"`
 	Resource         string `xorm:"varchar(255)" json:"resource"`           // RFC 8707 Resource Indicator
 	DPoPJkt          string `xorm:"varchar(255) 'dpop_jkt'" json:"dPoPJkt"` // RFC 9449 DPoP JWK thumbprint binding
+	RedirectUri      string `xorm:"varchar(1000)" json:"redirectUri"`       // redirect_uri supplied when the code was issued (RFC 6749 4.1.3)
 }
 
 func GetTokenCount(owner, organization, field, value string) (int64, error) {

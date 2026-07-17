@@ -68,7 +68,13 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	//	return
 	//}
 
-	token, tokenError, err := object.GetAuthorizationCodeToken(application, application.ClientSecret, code, "", "")
+	// Reconstruct the same redirect_uri that was used to obtain the code via
+	// getSigninUrl()/redirectToCasdoor() above, so the token exchange's
+	// redirect_uri matches the one bound to the code at issuance time.
+	scheme := getScheme(r)
+	callbackUrl := fmt.Sprintf("%s://%s/caswaf-handler", scheme, r.Host)
+
+	token, tokenError, err := object.GetAuthorizationCodeToken(application, application.ClientSecret, code, "", "", callbackUrl)
 	if tokenError != nil {
 		responseError(w, "CasWAF error: casdoorClient.GetOAuthToken() error: %s", tokenError.Error)
 		return

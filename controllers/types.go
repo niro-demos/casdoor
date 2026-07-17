@@ -33,5 +33,6 @@ type TokenRequest struct {
 	SubjectToken        string `json:"subject_token"`
 	SubjectTokenType    string `json:"subject_token_type"`
 	Audience            string `json:"audience"`
-	Resource            string `json:"resource"` // RFC 8707 Resource Indicator
+	Resource            string `json:"resource"`     // RFC 8707 Resource Indicator
+	RedirectUri         string `json:"redirect_uri"` // must match the redirect_uri used to obtain the code (RFC 6749 4.1.3)
 }

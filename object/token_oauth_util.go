@@ -378,6 +378,7 @@ func GetOAuthCode(userId string, clientId string, provider string, signinMethod 
 		CodeIsUsed:    false,
 		CodeExpireIn:  time.Now().Add(time.Minute * 5).Unix(),
 		Resource:      resource,
+		RedirectUri:   redirectUri,
 	}
 	_, err = AddToken(token)
 	if err != nil {
