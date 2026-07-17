@@ -163,9 +163,18 @@ func (c *ApiController) MfaSetupVerify() {
 	err := mfaUtil.SetupVerify(passcode)
 	if err != nil {
 		c.ResponseError(err.Error())
-	} else {
-		c.ResponseOk(http.StatusText(http.StatusOK))
+		return
 	}
+
+	if mfaType == object.TotpType {
+		// Bind this specific secret to the session: MfaSetupEnable will only
+		// accept enabling this exact secret afterwards, closing the gap where
+		// an attacker-chosen secret could be enabled without ever proving
+		// possession of it via a correct passcode.
+		c.setMfaVerifiedTotpSecretSession(secret)
+	}
+
+	c.ResponseOk(http.StatusText(http.StatusOK))
 }
 
 // MfaSetupEnable
@@ -206,6 +215,18 @@ func (c *ApiController) MfaSetupEnable() {
 			c.ResponseError("totp secret is missing")
 			return
 		}
+
+		// The client cannot assert that a secret has already been proven: an
+		// attacker riding the user's session could otherwise plant an
+		// arbitrary secret here and skip MfaSetupVerify entirely. Require
+		// that this exact secret was just verified with a correct passcode
+		// in this same session.
+		verifiedSecret := c.getMfaVerifiedTotpSecretSession()
+		if verifiedSecret == "" || verifiedSecret != secret {
+			c.ResponseError("totp secret has not been verified, please verify the passcode first")
+			return
+		}
+
 		config.Secret = secret
 	} else if mfaType == object.EmailType {
 		if user.Email == "" {
@@ -268,6 +289,12 @@ func (c *ApiController) MfaSetupEnable() {
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
+	}
+
+	if mfaType == object.TotpType {
+		// Consume the proven secret so it cannot be replayed to re-enable
+		// MFA later without verifying again.
+		c.clearMfaVerifiedTotpSecretSession()
 	}
 
 	c.ResponseOk(http.StatusText(http.StatusOK))

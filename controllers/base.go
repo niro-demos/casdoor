@@ -253,6 +253,29 @@ func (c *ApiController) getMfaUserSession() string {
 	return userId.(string)
 }
 
+// setMfaVerifiedTotpSecretSession records that the given TOTP secret was just
+// proven by a correct passcode in MfaSetupVerify, scoped to this
+// authenticated session only.
+func (c *ApiController) setMfaVerifiedTotpSecretSession(secret string) {
+	c.SetSession(object.MfaVerifiedTotpSecretSession, secret)
+}
+
+// getMfaVerifiedTotpSecretSession returns the TOTP secret previously proven
+// in this session via MfaSetupVerify, or "" if none was proven.
+func (c *ApiController) getMfaVerifiedTotpSecretSession() string {
+	secret := c.GetSession(object.MfaVerifiedTotpSecretSession)
+	if secret == nil {
+		return ""
+	}
+	return secret.(string)
+}
+
+// clearMfaVerifiedTotpSecretSession consumes the proven TOTP secret so it
+// cannot be replayed to enable MFA again later in the same session.
+func (c *ApiController) clearMfaVerifiedTotpSecretSession() {
+	_ = c.DelSession(object.MfaVerifiedTotpSecretSession)
+}
+
 func (c *ApiController) setExpireForSession(cookieExpireInHours int64) {
 	timestamp := time.Now().Unix()
 	if cookieExpireInHours == 0 {

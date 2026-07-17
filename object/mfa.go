@@ -50,6 +50,12 @@ const (
 	MfaSessionUserId = "MfaSessionUserId"
 	NextMfa          = "NextMfa"
 	RequiredMfa      = "RequiredMfa"
+
+	// MfaVerifiedTotpSecretSession holds the TOTP secret that was just proven
+	// via a successful MfaSetupVerify call in this authenticated session, so
+	// MfaSetupEnable can require it instead of trusting a client-supplied
+	// secret that was never checked against a real passcode.
+	MfaVerifiedTotpSecretSession = "MfaVerifiedTotpSecretSession"
 )
 
 func GetMfaUtil(mfaType string, config *MfaProps) MfaInterface {
