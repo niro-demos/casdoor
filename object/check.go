@@ -234,14 +234,6 @@ func CheckPassword(user *User, password string, lang string, options ...bool) er
 		enableCaptcha = options[0]
 	}
 
-	// check the login error times
-	if !enableCaptcha {
-		err := checkSigninErrorTimes(user, lang)
-		if err != nil {
-			return err
-		}
-	}
-
 	organization, err := GetOrganizationByUser(user)
 	if err != nil {
 		return err
@@ -266,7 +258,18 @@ func CheckPassword(user *User, password string, lang string, options ...bool) er
 		}
 	}
 
+	// Verify the supplied credential before consulting the lockout counter:
+	// an unauthenticated caller who does not know the password must only be
+	// able to trip/hold the lockout with further WRONG-password attempts,
+	// never deny the real owner's login when the correct password is
+	// supplied (see checkSigninErrorTimes).
 	if !credManager.IsPasswordCorrect(password, user.Password, organization.PasswordSalt) && !credManager.IsPasswordCorrect(password, user.Password, user.PasswordSalt) {
+		if !enableCaptcha {
+			err := checkSigninErrorTimes(user, lang)
+			if err != nil {
+				return err
+			}
+		}
 		return recordSigninErrorInfo(user, lang, enableCaptcha)
 	}
 
