@@ -375,8 +375,20 @@ func (application *Application) IsRedirectUriValid(redirectUri string) bool {
 		return true
 	}
 
+	return application.IsUriInRedirectUris(redirectUri)
+}
+
+// IsUriInRedirectUris reports whether uri matches one of application's
+// explicitly registered RedirectUris, without IsRedirectUriValid's
+// additional native-app-callback allowance (localhost/127.0.0.1/
+// *.chromiumapp.org). That allowance exists for OAuth/OIDC redirects
+// completing back into a local native app; it must not be reused for a
+// server-side outbound callback such as CAS's pgtUrl (CasP3ProxyValidate),
+// which needs to be pinned exactly to the application owner's registered
+// callback domains to avoid the server dialing an attacker-chosen host.
+func (application *Application) IsUriInRedirectUris(uri string) bool {
 	for _, targetUri := range application.RedirectUris {
-		if redirectUriMatchesPattern(redirectUri, targetUri) {
+		if redirectUriMatchesPattern(uri, targetUri) {
 			return true
 		}
 	}

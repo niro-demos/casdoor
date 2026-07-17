@@ -22,6 +22,7 @@ package controllers_test
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -300,6 +301,113 @@ func TestCasLoginRejectsUnregisteredService(t *testing.T) {
 		}
 		if resp.Status != "error" {
 			t.Fatalf("expected an error response for an unregistered service, got status=%q data=%s", resp.Status, resp.Data)
+		}
+	})
+}
+
+// TestCasProxyValidateRejectsUnregisteredPgtUrl covers the second half of
+// TC-372760A6: even once ticket-minting is pinned to a registered service
+// (TestCasLoginRejectsUnregisteredService above), the public
+// p3/proxyValidate endpoint must still refuse to dial an arbitrary
+// caller-supplied pgtUrl when redeeming an otherwise-legitimate ticket -
+// otherwise any authenticated user can request a ticket for the
+// application's own registered (and therefore allowed) service, then
+// redeem it with an unrelated attacker-chosen pgtUrl and get the same SSRF.
+func TestCasProxyValidateRejectsUnregisteredPgtUrl(t *testing.T) {
+	registeredService := "https://allowed.example.test/callback"
+	org, app := newTestOrgAndApp(t, "casssrf372760a6", []string{registeredService})
+	password := "Test-Pw1!"
+	user := newTestUser(t, org, "cas-ssrf-user", password)
+
+	mintTicket := func(t *testing.T) string {
+		t.Helper()
+		client := newFlowClient(t)
+		path := "/api/login?service=" + url.QueryEscape(registeredService)
+		_, resp := flowPostJSON(t, client, path, map[string]interface{}{
+			"username":     user.Name,
+			"password":     password,
+			"organization": org.Name,
+			"application":  app.Name,
+			"type":         "cas",
+		})
+		var ticket string
+		_ = json.Unmarshal(resp.Data, &ticket)
+		if resp.Status != "ok" || !strings.HasPrefix(ticket, "ST-") {
+			t.Fatalf("setup failed: could not mint a ticket for the registered service: status=%q data=%s", resp.Status, resp.Data)
+		}
+		return ticket
+	}
+
+	t.Run("registered pgtUrl passes the allowlist (control)", func(t *testing.T) {
+		ticket := mintTicket(t)
+		validateURL := fmt.Sprintf("%s/cas/%s/%s/p3/proxyValidate?service=%s&ticket=%s&pgtUrl=%s&format=json",
+			authFlowTestServer.URL, org.Name, app.Name,
+			url.QueryEscape(registeredService), url.QueryEscape(ticket), url.QueryEscape(registeredService))
+		httpResp, err := http.Get(validateURL)
+		if err != nil {
+			t.Fatalf("GET %s failed: %v", validateURL, err)
+		}
+		defer httpResp.Body.Close()
+		var body map[string]interface{}
+		_ = json.NewDecoder(httpResp.Body).Decode(&body)
+		if failure, ok := body["Failure"].(map[string]interface{}); ok {
+			if msg, _ := failure["Message"].(string); strings.Contains(msg, "allowed Redirect URI list") {
+				t.Fatalf("control failed: pgtUrl %q is one of application %q's own registered RedirectUris and must pass the allowlist check; got: %v", registeredService, app.Name, failure)
+			}
+		}
+	})
+
+	t.Run("unregistered pgtUrl is rejected and never dialed (red case / TC-372760A6)", func(t *testing.T) {
+		// Own, throwaway TCP listener standing in for an internal service the
+		// attacker is probing for - if the server actually dials out to it,
+		// the connection is observed here: concrete, first-hand proof of the
+		// SSRF, not just a parsed error message.
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to start local listener: %v", err)
+		}
+		defer ln.Close()
+		port := ln.Addr().(*net.TCPAddr).Port
+		attackerPgtUrl := fmt.Sprintf("https://127.0.0.1:%d/x", port)
+
+		connCh := make(chan struct{}, 1)
+		go func() {
+			_ = ln.(*net.TCPListener).SetDeadline(time.Now().Add(3 * time.Second))
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			connCh <- struct{}{}
+		}()
+
+		ticket := mintTicket(t)
+		validateURL := fmt.Sprintf("%s/cas/%s/%s/p3/proxyValidate?service=%s&ticket=%s&pgtUrl=%s&format=json",
+			authFlowTestServer.URL, org.Name, app.Name,
+			url.QueryEscape(registeredService), url.QueryEscape(ticket), url.QueryEscape(attackerPgtUrl))
+		httpResp, err := http.Get(validateURL)
+		if err != nil {
+			t.Fatalf("GET %s failed: %v", validateURL, err)
+		}
+		defer httpResp.Body.Close()
+		var body map[string]interface{}
+		_ = json.NewDecoder(httpResp.Body).Decode(&body)
+
+		select {
+		case <-connCh:
+			t.Fatalf("VULNERABLE: the server dialed out to the attacker-chosen pgtUrl (127.0.0.1:%d) while redeeming a ticket whose service (%q) is legitimately registered - "+
+				"pgtUrl itself was never checked against application %q's RedirectUris (%v). Response: %v", port, registeredService, app.Name, app.RedirectUris, body)
+		case <-time.After(1 * time.Second):
+			// no outbound connection observed - expected once pgtUrl is
+			// validated before the server dials out.
+		}
+
+		failure, ok := body["Failure"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected a CAS Failure response for an unregistered pgtUrl, got: %v", body)
+		}
+		if msg, _ := failure["Message"].(string); !strings.Contains(msg, "allowed Redirect URI list") {
+			t.Fatalf("expected the failure to be attributed to pgtUrl not being in the allowed Redirect URI list, got: %v", failure)
 		}
 	})
 }

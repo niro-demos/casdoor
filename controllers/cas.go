@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/beego/beego/v2/core/logs"
 	"github.com/casdoor/casdoor/object"
 )
 
@@ -119,15 +120,38 @@ func (c *RootController) CasP3ProxyValidate() {
 		// that means we are in proxy web flow
 		pgt := object.StoreCasTokenForPgt(serviceResponse.Success, service, userId)
 		pgtiou := serviceResponse.Success.ProxyGrantingTicket
-		// todo: check whether it is https
 		pgtUrlObj, err := url.Parse(pgtUrl)
 		if err != nil {
-			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "invalid pgtUrl", format)
 			return
 		}
 
 		if pgtUrlObj.Scheme != "https" {
 			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "callback is not https", format)
+			return
+		}
+
+		// pgtUrl drives an outbound HTTPS request the server itself makes
+		// (below), so - like the service ticket's service parameter - it must
+		// be pinned to a URL the application owner explicitly registered
+		// (application.RedirectUris), not any caller-supplied host. Without
+		// this, an authenticated caller could redeem any ticket issued for
+		// this application's own (legitimate) service and redirect the
+		// server's outbound request to an arbitrary attacker-chosen host
+		// (SSRF), entirely independent of the service ticket's own
+		// validation. Resolved by :organization/:application route params
+		// rather than the request's service value, since service is only
+		// validated as a prefix match above (strings.HasPrefix), which is
+		// not a safe anchor for an allowlist decision.
+		organization := c.Ctx.Input.Param(":organization")
+		applicationName := c.Ctx.Input.Param(":application")
+		application, err := object.GetApplication(fmt.Sprintf("admin/%s", applicationName))
+		if err != nil || application == nil || application.Organization != organization {
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "invalid service application", format)
+			return
+		}
+		if !application.IsUriInRedirectUris(pgtUrl) {
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "pgtUrl is not in the allowed Redirect URI list", format)
 			return
 		}
 
@@ -139,14 +163,22 @@ func (c *RootController) CasP3ProxyValidate() {
 
 		request, err := http.NewRequest("GET", pgtUrlObj.String(), nil)
 		if err != nil {
-			c.sendCasAuthenticationResponseErr(InternalError, err.Error(), format)
+			logs.Error("CasP3ProxyValidate: failed to build pgtUrl callback request: %s", err.Error())
+			c.sendCasAuthenticationResponseErr(InternalError, "internal error", format)
 			return
 		}
 
 		resp, err := http.DefaultClient.Do(request)
-		if err != nil || !(resp.StatusCode >= 200 && resp.StatusCode < 400) {
-			// failed to send request
-			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
+		// The outbound network error (DNS failure vs. connection refused vs.
+		// TLS handshake) is a reconnaissance oracle for the caller's internal
+		// network - log it server-side instead of echoing it back.
+		if err != nil {
+			logs.Error("CasP3ProxyValidate: pgtUrl callback request failed: %s", err.Error())
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "proxy callback failed", format)
+			return
+		}
+		if !(resp.StatusCode >= 200 && resp.StatusCode < 400) {
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "proxy callback failed", format)
 			return
 		}
 	}
