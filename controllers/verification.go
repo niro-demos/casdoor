@@ -199,6 +199,14 @@ func (c *ApiController) SendVerificationCode() {
 	}
 
 	var user *object.User
+	// checkUserUnresolved tracks a ForgetVerification checkUser that failed to
+	// resolve to a real account. It must NOT cause an early return with a
+	// distinguishable message here: doing so would let an anonymous caller
+	// use checkUser resolution as a username-existence oracle independent of
+	// dest. Instead, the failure is carried forward and converges with the
+	// dest-lookup failure path below, so both produce the identical generic
+	// response.
+	checkUserUnresolved := false
 	// Try to resolve user for CAPTCHA rule checking
 	// checkUser != "", means method is ForgetVerification
 	if vform.CheckUser != "" {
@@ -209,11 +217,14 @@ func (c *ApiController) SendVerificationCode() {
 			return
 		}
 		if user == nil || user.IsDeleted {
-			c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
-			return
-		}
-
-		if user.IsForbidden {
+			if vform.Method == ForgetVerification {
+				checkUserUnresolved = true
+				user = nil
+			} else {
+				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				return
+			}
+		} else if user.IsForbidden {
 			c.ResponseError(c.T("check:The user is forbidden to sign in, please contact the administrator"))
 			return
 		}
@@ -324,6 +335,16 @@ func (c *ApiController) SendVerificationCode() {
 				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
 				return
 			}
+
+			// For ForgetVerification, dest is resolved to a user independently of
+			// checkUser above: an unrelated real account's email must not be
+			// allowed to "confirm" a different, invalid checkUser. Both failure
+			// branches share the exact same message so response content can't be
+			// used to enumerate valid usernames.
+			if vform.Method == ForgetVerification && vform.CheckUser != "" && (checkUserUnresolved || user.Name != vform.CheckUser) {
+				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				return
+			}
 		} else if vform.Method == ResetVerification {
 			user = c.getCurrentUser()
 		} else if vform.Method == MfaAuthVerification {
@@ -358,6 +379,14 @@ func (c *ApiController) SendVerificationCode() {
 				c.ResponseError(err.Error())
 				return
 			} else if user == nil {
+				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				return
+			}
+
+			// Same enumeration guard as the email path above: for
+			// ForgetVerification, an unrelated real account's phone must not
+			// "confirm" a different, invalid checkUser.
+			if vform.Method == ForgetVerification && vform.CheckUser != "" && (checkUserUnresolved || user.Name != vform.CheckUser) {
 				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
 				return
 			}
