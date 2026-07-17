@@ -45,7 +45,13 @@ func (c *ApiController) GetRecords() {
 	organizationName := c.Ctx.Input.Query("organizationName")
 
 	if limit == "" || page == "" {
-		records, err := object.GetRecords()
+		// Apply the same organization scope as the paginated branch below:
+		// RequireAdmin() already returned "" for a real global admin (so
+		// this stays unfiltered for them) and the caller's own org
+		// otherwise. Without this, a non-global org admin could read every
+		// organization's audit records simply by omitting pageSize/p.
+		filterRecord := &object.Record{Organization: organization}
+		records, err := object.GetRecordsByField(filterRecord)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
