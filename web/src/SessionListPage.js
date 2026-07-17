@@ -16,24 +16,19 @@ import BaseListPage from "./BaseListPage";
 import * as Setting from "./Setting";
 import i18next from "i18next";
 import {Link} from "react-router-dom";
-import {Popconfirm, Table, Tag} from "antd";
+import {Table} from "antd";
 import React from "react";
 import * as SessionBackend from "./backend/SessionBackend";
 import PopconfirmModal from "./common/modal/PopconfirmModal";
 
 class SessionListPage extends BaseListPage {
-  handleTagClose = (rowIndex, sessionId, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    this.setState({
-      confirmTagKey: `${rowIndex}-${sessionId}`,
-    });
-  };
-
-  deleteSession(i, sessionId = "") {
-    // Pass the optional sessionId to the backend. If sessionId is empty, the backend will delete the whole session record.
-    SessionBackend.deleteSession(this.state.data[i], sessionId)
+  deleteSession(i) {
+    // The server no longer accepts or returns literal session ids over the API
+    // (they are the same bytes as the casdoor_session_id auth cookie, so
+    // exposing them let an org admin replay one and silently take over the
+    // account - TC-BDB2FFB9). Only "revoke all sessions for this user" is
+    // available from this list.
+    SessionBackend.deleteSession(this.state.data[i])
       .then((res) => {
         if (res.status === "ok") {
           Setting.showMessage("success", i18next.t("general:Successfully deleted"));
@@ -89,34 +84,12 @@ class SessionListPage extends BaseListPage {
         },
       },
       {
-        title: i18next.t("general:Session ID"),
-        dataIndex: "sessionId",
-        key: "sessionId",
-        width: "180px",
-        sorter: true,
-        render: (text, record, index) => {
-          return text.map((item, idx) => {
-            const tagKey = `${index}-${item}`;
-            const confirmTitle = i18next.t("general:Sure to delete");
-            const confirmContent = `${i18next.t("general:Session ID")}: ${item}`;
-            const isActive = this.state.confirmTagKey === tagKey;
-            return (
-              <Popconfirm
-                key={`${index}-${idx}`}
-                title={confirmTitle}
-                description={confirmContent}
-                open={isActive}
-                onConfirm={() => {this.deleteSession(index, item); this.setState({confirmTagKey: null});}}
-                onCancel={() => this.setState({confirmTagKey: null})}
-                onOpenChange={(visible) => {if (!visible && isActive) {this.setState({confirmTagKey: null});}}}
-                okText={i18next.t("general:OK")}
-                cancelText={i18next.t("general:Cancel")}
-              >
-                <Tag closable onClose={(e) => this.handleTagClose(index, item, e)}>{item}</Tag>
-              </Popconfirm>
-            );
-          });
-        },
+        title: i18next.t("general:Session count"),
+        dataIndex: "sessionCount",
+        key: "sessionCount",
+        width: "140px",
+        // Not sortable: sessionCount is computed at response time, not a
+        // persisted column, so the server has nothing to ORDER BY.
       },
       {
         title: i18next.t("general:Action"),

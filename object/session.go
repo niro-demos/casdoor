@@ -37,6 +37,14 @@ type Session struct {
 
 	SessionId []string `json:"sessionId"`
 
+	// SessionCount is a computed, non-persisted field. It is only ever
+	// populated by the read-only list/detail API responses (see
+	// controllers/session.go's redactSessions) as a safe replacement for the
+	// literal SessionId values, which are byte-for-byte the same tokens
+	// accepted as the casdoor_session_id auth cookie and must never be
+	// echoed back over the API.
+	SessionCount int `xorm:"-" json:"sessionCount"`
+
 	ExclusiveSignin bool `xorm:"-"`
 }
 

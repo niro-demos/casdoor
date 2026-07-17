@@ -24,6 +24,27 @@ import (
 	"github.com/casdoor/casdoor/util"
 )
 
+// redactSessions strips the literal, replayable SessionId values from
+// sessions before they are serialized into an API response, replacing them
+// with a count. A session's SessionId is byte-for-byte the same value the
+// server accepts as the casdoor_session_id authentication cookie, so
+// returning it - even to an organization admin or the global admin - lets
+// the caller replay it and silently take over the session owner's account
+// with no password, no MFA, and no distinguishing audit trail (TC-BDB2FFB9).
+// The endpoints' legitimate purpose (showing how many active sessions a user
+// has, for a revoke-all-sessions UX) only needs the count, never the raw
+// tokens.
+func redactSessions(sessions []*object.Session) []*object.Session {
+	for _, s := range sessions {
+		if s == nil {
+			continue
+		}
+		s.SessionCount = len(s.SessionId)
+		s.SessionId = nil
+	}
+	return sessions
+}
+
 // GetSessions
 // @Title GetSessions
 // @Tag Session API
@@ -47,7 +68,7 @@ func (c *ApiController) GetSessions() {
 			return
 		}
 
-		c.ResponseOk(sessions)
+		c.ResponseOk(redactSessions(sessions))
 	} else {
 		limit := util.ParseInt(limit)
 		count, err := object.GetSessionCount(owner, field, value)
@@ -62,7 +83,7 @@ func (c *ApiController) GetSessions() {
 			return
 		}
 
-		c.ResponseOk(sessions, paginator.Nums())
+		c.ResponseOk(redactSessions(sessions), paginator.Nums())
 	}
 }
 
@@ -80,6 +101,10 @@ func (c *ApiController) GetSingleSession() {
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
+	}
+
+	if session != nil {
+		redactSessions([]*object.Session{session})
 	}
 
 	c.ResponseOk(session)
