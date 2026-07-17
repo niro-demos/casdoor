@@ -30,19 +30,22 @@ type UserResourceHandler struct{}
 
 func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
 	resource := &scim.Resource{Attributes: attrs}
-	err := AddScimUser(resource)
+	err := AddScimUser(r, resource)
 	return *resource, err
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := GetScimUser(id)
+	user, err := object.GetUserByUserIdOnly(id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if resource == nil {
+	if user == nil || !callerScope(r).canAccess(user.Owner) {
+		// A caller confined to one organization gets the same "not found"
+		// response for a foreign-org resource as for one that truly doesn't
+		// exist, so the boundary can't be probed for existence either.
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
-	return *resource, nil
+	return *user2resource(user), nil
 }
 
 func (h UserResourceHandler) Delete(r *http.Request, id string) error {
@@ -50,7 +53,7 @@ func (h UserResourceHandler) Delete(r *http.Request, id string) error {
 	if err != nil {
 		return err
 	}
-	if user == nil {
+	if user == nil || !callerScope(r).canAccess(user.Owner) {
 		return errors.ScimErrorResourceNotFound(id)
 	}
 	_, err = object.DeleteUser(user)
@@ -58,8 +61,22 @@ func (h UserResourceHandler) Delete(r *http.Request, id string) error {
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	sc := callerScope(r)
+	// "" means unfiltered (every organization) to the object package's
+	// pagination helpers -- exactly the semantics of a global admin.
+	owner := ""
+	if !sc.isGlobalAdmin {
+		owner = sc.owner
+	}
+
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		var count int64
+		var err error
+		if sc.isGlobalAdmin {
+			count, err = object.GetGlobalUserCount("", "")
+		} else {
+			count, err = object.GetUserCount(owner, "", "", "")
+		}
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -68,7 +85,13 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 
 	resources := make([]scim.Resource, 0)
 	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	var users []*object.User
+	var err error
+	if sc.isGlobalAdmin {
+		users, err = object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	} else {
+		users, err = object.GetPaginationUsers(owner, params.StartIndex-1, params.Count, "", "", "", "", "")
+	}
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -86,10 +109,10 @@ func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
+	if user == nil || !callerScope(r).canAccess(user.Owner) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
-	return UpdateScimUserByPatchOperation(id, operations)
+	return UpdateScimUserByPatchOperation(r, id, operations)
 }
 
 func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
@@ -97,30 +120,26 @@ func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.Reso
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
+	if user == nil || !callerScope(r).canAccess(user.Owner) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	resource := &scim.Resource{Attributes: attrs}
-	err = UpdateScimUser(id, resource)
+	err = UpdateScimUser(r, id, resource)
 	return *resource, err
 }
 
-func GetScimUser(id string) (*scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
-	if err != nil {
-		return nil, err
-	}
-	if user == nil {
-		return nil, nil
-	}
-	r := user2resource(user)
-	return r, nil
-}
-
-func AddScimUser(r *scim.Resource) error {
-	newUser, err := resource2user(r.Attributes)
+func AddScimUser(r *http.Request, res *scim.Resource) error {
+	newUser, err := resource2user(res.Attributes)
 	if err != nil {
 		return err
+	}
+
+	// An org-scoped admin may only provision users into their OWN
+	// organization: force Owner to the caller's org, ignoring a
+	// client-supplied organization extension value that differs from it.
+	// A global admin may create into any organization, as before.
+	if sc := callerScope(r); !sc.isGlobalAdmin {
+		newUser.Owner = sc.owner
 	}
 
 	// Check whether the user exists.
@@ -140,14 +159,14 @@ func AddScimUser(r *scim.Resource) error {
 		return fmt.Errorf("add new user failed")
 	}
 
-	r.Attributes = user2resource(newUser).Attributes
-	r.ID = newUser.Id
-	r.ExternalID = buildExternalId(newUser)
-	r.Meta = buildMeta(newUser)
+	res.Attributes = user2resource(newUser).Attributes
+	res.ID = newUser.Id
+	res.ExternalID = buildExternalId(newUser)
+	res.Meta = buildMeta(newUser)
 	return nil
 }
 
-func UpdateScimUser(id string, r *scim.Resource) error {
+func UpdateScimUser(r *http.Request, id string, res *scim.Resource) error {
 	oldUser, err := object.GetUserByUserIdOnly(id)
 	if err != nil {
 		return err
@@ -155,33 +174,39 @@ func UpdateScimUser(id string, r *scim.Resource) error {
 	if oldUser == nil {
 		return errors.ScimErrorResourceNotFound(id)
 	}
-	newUser, err := resource2user(r.Attributes)
+	newUser, err := resource2user(res.Attributes)
 	if err != nil {
 		return err
+	}
+	// An org-scoped admin cannot use a full Replace to move the user into a
+	// different organization than the one they are confined to.
+	if sc := callerScope(r); !sc.isGlobalAdmin {
+		newUser.Owner = sc.owner
 	}
 	_, err = object.UpdateUser(oldUser.GetId(), newUser, nil, true)
 	if err != nil {
 		return err
 	}
 
-	r.ID = newUser.Id
-	r.ExternalID = buildExternalId(newUser)
-	r.Meta = buildMeta(newUser)
+	res.ID = newUser.Id
+	res.ExternalID = buildExternalId(newUser)
+	res.Meta = buildMeta(newUser)
 	return nil
 }
 
 // https://datatracker.ietf.org/doc/html/rfc7644#section-3.5.2 Modifying with PATCH
-func UpdateScimUserByPatchOperation(id string, ops []scim.PatchOperation) (r scim.Resource, err error) {
+func UpdateScimUserByPatchOperation(r *http.Request, id string, ops []scim.PatchOperation) (res scim.Resource, err error) {
 	user, err := object.GetUserByUserIdOnly(id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
+	sc := callerScope(r)
+	if user == nil || !sc.canAccess(user.Owner) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("invalid patch op value: %v", r)
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("invalid patch op value: %v", rec)
 		}
 	}()
 	old := user.GetId()
@@ -251,10 +276,16 @@ func UpdateScimUserByPatchOperation(id string, ops []scim.PatchOperation) (r sci
 			user.Owner = ToString(value, user.Owner)
 		}
 	}
+	// An org-scoped admin cannot use the enterprise-user "organization"
+	// extension field to move a user out of the org they are confined to,
+	// even one they were authorized to patch in the first place.
+	if !sc.isGlobalAdmin {
+		user.Owner = sc.owner
+	}
 	_, err = object.UpdateUser(old, user, nil, true)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	r = *user2resource(user)
-	return r, nil
+	res = *user2resource(user)
+	return res, nil
 }

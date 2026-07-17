@@ -21,12 +21,16 @@ import (
 )
 
 func (c *RootController) HandleScim() {
-	_, ok := c.RequireAdmin()
+	owner, ok := c.RequireAdmin()
 	if !ok {
 		return
 	}
 
 	path := c.Ctx.Request.URL.Path
 	c.Ctx.Request.URL.Path = strings.TrimPrefix(path, "/scim")
+	// Thread the caller's own organization (owner == "" for the built-in
+	// global admin, otherwise the org they are confined to) into the SCIM
+	// resource handlers so they can enforce the tenant boundary themselves.
+	c.Ctx.Request = scim.WithCallerOwner(c.Ctx.Request, owner)
 	scim.Server.ServeHTTP(c.Ctx.ResponseWriter, c.Ctx.Request)
 }
