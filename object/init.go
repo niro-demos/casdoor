@@ -409,17 +409,34 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act`,
 	}
 }
 
-func initBuiltInApiModel() bool {
-	model, err := GetModel("built-in/api-model-built-in")
-	if err != nil {
-		panic(err)
-	}
+// builtInApiModelSelfServicePaths is the exhaustive allowlist of urlPaths that
+// are genuine, admin-free user self-service operations (a user acting on her
+// own User record/account state) for which built-in/api-model-built-in's
+// trailing self-match clause is allowed to substitute for an explicit policy
+// row. Every one of these paths was verified to have no other matching policy
+// row in authz.apiPolicyRuleText and no independent self-or-admin check in its
+// controller, so it depends entirely on this matcher clause for access
+// control:
+//   - update-user, delete-user: the controllers have no self/admin gate of
+//     their own for the base "is this my account" check.
+//   - check-user-password, verify-identification (self path), set-preferred-mfa,
+//     delete-mfa/, mfa/setup/{initiate,verify,enable}: all take owner/name of
+//     the acting user's own account from the request body/form and have no
+//     covering policy row.
+//
+// This does NOT include admin-plane, non-User entities (Role, Permission,
+// Adapter, Enforcer, Application, Cert, Organization, Provider, Webhook,
+// Syncer, Model, etc.): those must never be reachable purely because an
+// object's owner/name happens to equal the caller's own owner/name -- that
+// was the TC-67D66F95 self-name matcher bypass.
+const builtInApiModelSelfServicePaths = `^/api/(update-user|delete-user|check-user-password|verify-identification|set-preferred-mfa|delete-mfa/?|mfa/setup/(initiate|verify|enable))$`
 
-	if model != nil {
-		return true
-	}
-
-	modelText := `[request_definition]
+// BuiltInApiModelText is the Casbin model text for built-in/api-model-built-in,
+// the meta-authorization model that gates every /api/* request. It is exported
+// (rather than kept function-local) so tests can build an in-memory Casbin
+// enforcer from the exact production matcher instead of a copy that could
+// drift out of sync.
+const BuiltInApiModelText = `[request_definition]
 r = subOwner, subName, method, urlPath, objOwner, objName
 
 [policy_definition]
@@ -438,14 +455,24 @@ m = (r.subOwner == p.subOwner || p.subOwner == "*") && \
     (keyMatch2(r.urlPath, p.urlPath) || p.urlPath == "*") && \
     (r.objOwner == p.objOwner || p.objOwner == "*") && \
     (r.objName == p.objName || p.objName == "*") || \
-    (r.subOwner == r.objOwner && r.subName == r.objName)`
+    (r.subOwner == r.objOwner && r.subName == r.objName && regexMatch(r.urlPath, "` + builtInApiModelSelfServicePaths + `"))`
+
+func initBuiltInApiModel() bool {
+	model, err := GetModel("built-in/api-model-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if model != nil {
+		return true
+	}
 
 	model = &Model{
 		Owner:       "built-in",
 		Name:        "api-model-built-in",
 		CreatedTime: util.GetCurrentTime(),
 		DisplayName: "API Model",
-		ModelText:   modelText,
+		ModelText:   BuiltInApiModelText,
 	}
 	_, err = AddModel(model)
 	if err != nil {

@@ -26,18 +26,10 @@ import (
 
 var Enforcer *casbin.Enforcer
 
-func InitApi() {
-	e, err := object.GetInitializedEnforcer(util.GetId("built-in", "api-enforcer-built-in"))
-	if err != nil {
-		panic(err)
-	}
-
-	Enforcer = e.Enforcer
-	Enforcer.ClearPolicy()
-
-	// if len(Enforcer.GetPolicy()) == 0 {
-	if true {
-		ruleText := `
+// apiPolicyRuleText is the policy loaded against built-in/api-model-built-in.
+// It is a package-level constant (rather than function-local) so tests can
+// build an in-memory Casbin enforcer from the exact production policy.
+const apiPolicyRuleText = `
 p, built-in, *, *, *, *, *
 p, app, *, *, *, *, *
 p, app-dcr, *, *, /api/login/oauth/*, *, *
@@ -138,7 +130,18 @@ p, *, *, POST, /api/grant-consent, *, *
 p, *, *, POST, /api/revoke-consent, *, *
 `
 
-		sa := stringadapter.NewAdapter(ruleText)
+func InitApi() {
+	e, err := object.GetInitializedEnforcer(util.GetId("built-in", "api-enforcer-built-in"))
+	if err != nil {
+		panic(err)
+	}
+
+	Enforcer = e.Enforcer
+	Enforcer.ClearPolicy()
+
+	// if len(Enforcer.GetPolicy()) == 0 {
+	if true {
+		sa := stringadapter.NewAdapter(apiPolicyRuleText)
 		// load all rules from string adapter to enforcer's memory
 		err = sa.LoadPolicy(Enforcer.GetModel())
 		if err != nil {

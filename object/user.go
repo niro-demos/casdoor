@@ -695,6 +695,18 @@ func GetMaskedUser(user *User, isAdminOrSelf bool, errs ...error) (*User, error)
 				}
 			}
 		}
+
+		// These fields have no corresponding AccountItems entry, so
+		// GetFilteredUser never redacts them regardless of organization
+		// configuration. Unconditionally clear them here, the same way
+		// Password/OriginalToken/OriginalRefreshToken already are, so a
+		// public-profile lookup (or any non-admin, non-self view) can never
+		// leak password-hash metadata or login-failure telemetry.
+		user.PasswordSalt = ""
+		user.PasswordType = ""
+		user.CreatedIp = ""
+		user.SigninWrongTimes = 0
+		user.LastSigninWrongTime = ""
 	}
 
 	if user.ManagedAccounts != nil {
