@@ -138,6 +138,14 @@ func GetWebhookByOrganization(id string, organization string) (*Webhook, error) 
 }
 
 func UpdateWebhook(id string, webhook *Webhook, isGlobalAdmin bool, lang string) (bool, error) {
+	// Validate the destination before touching the database at all: an
+	// org-scoped admin must not be able to point the server's own outbound
+	// HTTP client at loopback, link-local (including cloud-metadata
+	// 169.254.169.254), or RFC1918/RFC4193 private destinations.
+	if err := validateWebhookUrl(webhook.Url); err != nil {
+		return false, err
+	}
+
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
@@ -160,6 +168,11 @@ func UpdateWebhook(id string, webhook *Webhook, isGlobalAdmin bool, lang string)
 }
 
 func AddWebhook(webhook *Webhook) (bool, error) {
+	// Same destination validation as UpdateWebhook - see there for why.
+	if err := validateWebhookUrl(webhook.Url); err != nil {
+		return false, err
+	}
+
 	affected, err := ormer.Engine.Insert(webhook)
 	if err != nil {
 		return false, err

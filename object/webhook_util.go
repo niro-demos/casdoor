@@ -25,7 +25,19 @@ import (
 )
 
 func sendWebhook(webhook *Webhook, record *Record, extendedUser *User) (int, string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Re-validate the destination at the transport layer, at actual delivery
+	// time, not just at webhook create/update time (see AddWebhook /
+	// UpdateWebhook in webhook.go). This closes the DNS-rebinding gap: a
+	// hostname that resolved to a public IP when the webhook was saved but
+	// resolves to a loopback/link-local/private/metadata address now is still
+	// blocked, because the dialer's Control hook checks the address actually
+	// being connected to, not the URL string.
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialContext: webhookSafeDialer().DialContext,
+		},
+	}
 	userMap := make(map[string]interface{})
 	var body io.Reader
 
