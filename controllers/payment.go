@@ -258,10 +258,15 @@ func (c *ApiController) InvoicePayment() {
 		c.ResponseError(err.Error())
 		return
 	}
+	if payment == nil {
+		c.ResponseError("the payment does not exist")
+		return
+	}
 
 	invoiceUrl, err := object.InvoicePayment(payment)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
 	}
 	c.ResponseOk(invoiceUrl)
 }

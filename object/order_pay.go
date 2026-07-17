@@ -34,6 +34,9 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 		if reqInfo.Name == "" {
 			return nil, fmt.Errorf("product name cannot be empty")
 		}
+		if reqInfo.Quantity <= 0 {
+			return nil, fmt.Errorf("product quantity should be greater than zero")
+		}
 		productNames = append(productNames, reqInfo.Name)
 	}
 
@@ -100,6 +103,9 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 		if orderPrice < 0 {
 			orderPrice = 0
 		}
+	}
+	if orderPrice <= 0 {
+		return nil, fmt.Errorf("order price should be greater than zero")
 	}
 
 	orderName := fmt.Sprintf("order_%v", util.GenerateTimeId())

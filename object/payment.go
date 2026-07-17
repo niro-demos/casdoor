@@ -454,6 +454,9 @@ func invoicePayment(payment *Payment) (string, error) {
 }
 
 func InvoicePayment(payment *Payment) (string, error) {
+	if payment == nil {
+		return "", fmt.Errorf("the payment does not exist")
+	}
 	if payment.State != pp.PaymentStatePaid {
 		return "", fmt.Errorf("the payment state is supposed to be: \"%s\", got: \"%s\"", "Paid", payment.State)
 	}
