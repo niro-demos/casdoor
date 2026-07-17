@@ -1,6 +1,7 @@
 package ldap
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,9 @@ import (
 	goldap "github.com/go-ldap/ldap/v3"
 	"github.com/lor00x/goldap/message"
 	"github.com/xorm-io/builder"
+
+	"github.com/casdoor/casdoor/object"
+	"github.com/xorm-io/xorm"
 )
 
 func args(exp ...interface{}) []interface{} {
@@ -59,6 +63,82 @@ func TestLdapFilterAsQuery(t *testing.T) {
 			assert.Equal(t, scenery.expectedArgs, args)
 		})
 	}
+}
+
+// TestUserPasswordAttributeIsMaskedInLdapSearchResponse is the regression
+// test for TC-B61201B0: the LDAP directory-search response must mask the
+// userPassword attribute the same way every REST GetX handler masks
+// user.Password to "***" (object.GetMaskedUser, object/user.go), instead of
+// serializing the raw stored bcrypt hash onto the wire whenever a bound
+// client (any org admin / global admin allowed to search at all) names
+// "userPassword" in a SearchRequest's attribute-selection list.
+func TestUserPasswordAttributeIsMaskedInLdapSearchResponse(t *testing.T) {
+	user := seedLdapPasswordMaskingTestUser(t)
+
+	pw := getAttribute("userPassword", user)
+
+	if string(pw) == user.Password {
+		t.Fatalf("userPassword attribute leaked the real stored password hash over LDAP: got %q", pw)
+	}
+	if s := string(pw); s != "" && s != "***" {
+		t.Fatalf("userPassword attribute must be masked (\"***\") or omitted like every other secret field in this product, got %q", s)
+	}
+
+	// Positive control: a non-secret attribute for the same user must still
+	// resolve correctly, proving a failure above is the masking invariant,
+	// not a broken test environment.
+	if cn := getAttribute("cn", user); string(cn) != user.Name {
+		t.Fatalf("positive control failed: cn = %q, want %q (test setup broken, not the security fix)", cn, user.Name)
+	}
+}
+
+// seedLdapPasswordMaskingTestUser seeds a throwaway sqlite-backed database
+// with one organization and one user, then points the object package's
+// shared ormer at it (the same env-vars-override-app.conf mechanism the
+// Niro harness's own start.sh uses: driverName/dataSourceName/dbName are
+// read by conf.GetConfigString, which checks the process environment
+// before the tracked conf/app.conf). This is required because the LDAP
+// "userPassword" attribute mapping resolves the user's organization via
+// object.GetOrganizationByUser, which hits the database — on the pre-fix
+// code that lookup is how the raw hash gets fetched; on the fixed code the
+// attribute is masked before any such lookup would matter.
+func seedLdapPasswordMaskingTestUser(t *testing.T) *object.User {
+	t.Helper()
+
+	dsn := "file:" + filepath.Join(t.TempDir(), "ldap-masking-test.db") + "?cache=shared"
+
+	seedEngine, err := xorm.NewEngine("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("failed to open sqlite test engine: %v", err)
+	}
+	if err := seedEngine.Sync2(new(object.Organization), new(object.User)); err != nil {
+		t.Fatalf("failed to sync test schema: %v", err)
+	}
+
+	org := &object.Organization{Owner: "admin", Name: "acme", PasswordType: "plain"}
+	if _, err := seedEngine.Insert(org); err != nil {
+		t.Fatalf("failed to seed test organization: %v", err)
+	}
+
+	user := &object.User{
+		Owner:    "acme",
+		Name:     "alice",
+		Id:       "e42dccff-a695-4325-b904-05f855108c7f",
+		Password: "{bcrypt}$2a$10$J0gU7mDl0IkHQioAS5ux4ugmJrDMrw7l1jOmPkQuSf0RctYK5vUpa",
+	}
+	if _, err := seedEngine.Insert(user); err != nil {
+		t.Fatalf("failed to seed test user: %v", err)
+	}
+	if err := seedEngine.Close(); err != nil {
+		t.Fatalf("failed to close seeding engine: %v", err)
+	}
+
+	t.Setenv("driverName", "sqlite")
+	t.Setenv("dataSourceName", dsn)
+	t.Setenv("dbName", "")
+	object.InitAdapter()
+
+	return user
 }
 
 func buildLdapSearchRequest(filter string) (*ber.Packet, error) {

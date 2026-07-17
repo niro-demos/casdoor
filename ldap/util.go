@@ -80,7 +80,17 @@ var ldapAttributesMapping = map[string]FieldRelation{
 		userField:     "userPassword",
 		notSearchable: true,
 		fieldMapper: func(user *object.User) message.AttributeValue {
-			return message.AttributeValue(getUserPasswordWithType(user))
+			// Never serialize the raw stored password hash onto the wire.
+			// Every REST GetX endpoint masks user.Password to "***"
+			// (object.GetMaskedUser, object/user.go), and the LDAP
+			// directory-search response must follow the same rule
+			// regardless of who is bound or which attributes they asked
+			// for - an admin bind must not be able to harvest other
+			// users' crackable password hashes over this interface.
+			if user.Password == "" {
+				return message.AttributeValue("")
+			}
+			return message.AttributeValue("***")
 		},
 	},
 	"loginShell": {
@@ -448,29 +458,6 @@ func GetFilteredOrganizations(m *ldap.Message) ([]*object.Organization, int) {
 	} else {
 		return nil, ldap.LDAPResultInsufficientAccessRights
 	}
-}
-
-// get user password with hash type prefix
-// TODO not handle salt yet
-// @return {md5}5f4dcc3b5aa765d61d8327deb882cf99
-func getUserPasswordWithType(user *object.User) string {
-	org, err := object.GetOrganizationByUser(user)
-	if err != nil {
-		panic(err)
-	}
-
-	if org.PasswordType == "" || org.PasswordType == "plain" {
-		return user.Password
-	}
-	prefix := org.PasswordType
-	if prefix == "salt" {
-		prefix = "sha256"
-	} else if prefix == "md5-salt" {
-		prefix = "md5"
-	} else if prefix == "pbkdf2-salt" {
-		prefix = "pbkdf2"
-	}
-	return fmt.Sprintf("{%s}%s", prefix, user.Password)
 }
 
 func getAttribute(attributeName string, user *object.User) message.AttributeValue {
