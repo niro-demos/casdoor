@@ -113,20 +113,30 @@ func FilterSQLIdentifier(field string) bool {
 	return ReFieldWhiteListIdentifier.MatchString(field)
 }
 
+// IsValidOrigin used to grant an unconditional, application-agnostic pass to
+// any origin/redirect_uri whose host (ignoring port) was "localhost",
+// "127.0.0.1", "casdoor-authenticator", or suffixed with ".chromiumapp.org".
+// That blanket pass was used both to grant credentialed CORS headers
+// (routers/cors_filter.go, on every endpoint including the
+// session-cookie-authenticated GET /api/get-account) and to skip the OAuth
+// redirect_uri allow-list (object/application_util.go
+// Application.IsRedirectUriValid), for every application in the instance --
+// letting any local process on an arbitrary loopback port, or any
+// *.chromiumapp.org browser extension, win a credentialed CORS grant and
+// have the authorization server hand it an authorization code and full
+// token set for a redirect_uri no application had actually registered.
+//
+// It is kept, still returning (bool, error), only so existing callers keep
+// compiling and keep their url.Parse-error handling; it no longer grants any
+// origin a special pass. A native/desktop or browser-extension client that
+// needs a loopback or *.chromiumapp.org redirect URI must have that exact
+// URI (or an explicit pattern for it) registered on the application's own
+// RedirectUris, like any other client -- see
+// Application.IsRedirectUriValid and Application.IsOriginValid, which match
+// against RedirectUris directly.
 func IsValidOrigin(origin string) (bool, error) {
-	urlObj, err := url.Parse(origin)
-	if err != nil {
+	if _, err := url.Parse(origin); err != nil {
 		return false, err
 	}
-	if urlObj == nil {
-		return false, nil
-	}
-
-	originHostOnly := ""
-	if urlObj.Host != "" {
-		originHostOnly = fmt.Sprintf("%s://%s", urlObj.Scheme, urlObj.Hostname())
-	}
-
-	res := originHostOnly == "http://localhost" || originHostOnly == "https://localhost" || originHostOnly == "http://127.0.0.1" || originHostOnly == "http://casdoor-authenticator" || strings.HasSuffix(originHostOnly, ".chromiumapp.org")
-	return res, nil
+	return false, nil
 }

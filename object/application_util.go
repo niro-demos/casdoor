@@ -366,15 +366,15 @@ func (application *Application) GetId() string {
 	return fmt.Sprintf("%s/%s", application.Owner, application.Name)
 }
 
+// IsRedirectUriValid reports whether redirectUri is registered on this
+// application's own RedirectUris. It intentionally does not special-case
+// localhost/127.0.0.1/casdoor-authenticator/chromiumapp.org hosts: the
+// authorization server must only ever send an authorization code or login
+// response to a redirect URI the requesting application actually
+// registered, for every application (see TC-6CC32273). A native/desktop or
+// browser-extension client must register its exact redirect URI, or an
+// explicit pattern for it, like any other client.
 func (application *Application) IsRedirectUriValid(redirectUri string) bool {
-	isValid, err := util.IsValidOrigin(redirectUri)
-	if err != nil {
-		panic(err)
-	}
-	if isValid {
-		return true
-	}
-
 	for _, targetUri := range application.RedirectUris {
 		if redirectUriMatchesPattern(redirectUri, targetUri) {
 			return true

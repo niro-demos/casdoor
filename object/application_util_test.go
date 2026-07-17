@@ -77,3 +77,98 @@ func TestRedirectUriMatchesPattern(t *testing.T) {
 		}
 	}
 }
+
+// TestIsRedirectUriValid covers TC-6CC32273: the OAuth authorization
+// endpoint must only ever hand a code/login response to a redirect_uri the
+// requesting application actually registered in its own RedirectUris,
+// regardless of whether the unregistered URI's host happens to be
+// localhost, 127.0.0.1, casdoor-authenticator, or a *.chromiumapp.org
+// browser-extension host. Those hosts were previously special-cased as
+// unconditionally valid by util.IsValidOrigin, bypassing the RedirectUris
+// allow-list entirely for every application in the instance.
+func TestIsRedirectUriValid(t *testing.T) {
+	// Mirrors app-acme from the finding: only one redirect_uri registered.
+	application := &Application{
+		Owner:        "admin",
+		Name:         "app-acme",
+		RedirectUris: []string{"http://localhost:8000/callback"},
+	}
+
+	tests := []struct {
+		name        string
+		redirectUri string
+		want        bool
+	}{
+		// Positive control: the application's actually-registered redirect_uri
+		// must keep working -- proves the allow-list check itself isn't broken.
+		{"registered redirect_uri is accepted", "http://localhost:8000/callback", true},
+
+		// Negative control: an ordinary unregistered host was already rejected
+		// before this fix; it must stay rejected.
+		{"plain unregistered host is rejected", "http://evil.example.com/callback", false},
+
+		// Attack cases from TC-6CC32273's attack_steps: none of these are in
+		// app-acme's RedirectUris, so all must be rejected -- previously they
+		// were unconditionally accepted via util.IsValidOrigin's blanket
+		// localhost/127.0.0.1/chromiumapp.org bypass.
+		{"unregistered localhost port is rejected", "http://localhost:31337/exfil", false},
+		{"unregistered 127.0.0.1 port is rejected", "http://127.0.0.1:4444/exfil", false},
+		{"unregistered chromiumapp.org host is rejected", "https://attackerextensionid.chromiumapp.org/", false},
+		{"unregistered localhost port (2nd case) is rejected", "http://localhost:9999/exfil2", false},
+		{"unregistered casdoor-authenticator host is rejected", "http://casdoor-authenticator/callback", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := application.IsRedirectUriValid(tt.redirectUri)
+			if got != tt.want {
+				t.Errorf("IsRedirectUriValid(%q) = %v, want %v", tt.redirectUri, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIsOriginValid covers the object-level half of TC-D6CB84C3: the
+// application-scoped CORS allow-list (used by CorsFilter via
+// IsOriginAllowed for every credentialed endpoint, including
+// GET /api/get-account) must only grant a credentialed cross-origin match
+// to an Origin the application actually registered (scheme+host+port), not
+// to an arbitrary Origin that merely claims a localhost/127.0.0.1 host.
+func TestIsOriginValid(t *testing.T) {
+	// Mirrors app-acme: its only registered redirect_uri is on localhost:8000,
+	// so that exact origin is legitimately trusted for CORS.
+	application := &Application{
+		Owner:        "admin",
+		Name:         "app-acme",
+		RedirectUris: []string{"http://localhost:8000/callback"},
+	}
+
+	tests := []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		// Positive control: the app's own registered origin (scheme+host+port)
+		// must still be granted -- proves the allow-list itself isn't broken.
+		{"registered origin is valid", "http://localhost:8000", true},
+
+		// Attack case from TC-D6CB84C3's attack_steps: an arbitrary,
+		// unregistered localhost port unrelated to this application must NOT
+		// be granted a credentialed CORS match -- previously it was, via
+		// util.IsValidOrigin's blanket localhost bypass.
+		{"forged unregistered localhost port is rejected", "http://localhost:65000", false},
+		{"forged unregistered 127.0.0.1 port is rejected", "http://127.0.0.1:9999", false},
+
+		// A plain unrelated origin was already rejected; must stay rejected.
+		{"unrelated origin is rejected", "http://evil.example.com", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := application.IsOriginValid(tt.origin)
+			if got != tt.want {
+				t.Errorf("IsOriginValid(%q) = %v, want %v", tt.origin, got, tt.want)
+			}
+		})
+	}
+}
