@@ -53,13 +53,33 @@ func (c *ApiController) GetResources() {
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 
-	isOrgAdmin, ok := c.IsOrgAdmin()
+	requestUserId, ok := c.RequireSignedIn()
 	if !ok {
 		return
 	}
 
-	if isOrgAdmin {
-		user = ""
+	if !object.IsAppUser(requestUserId) {
+		requestUser, err := object.GetUser(requestUserId)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if requestUser == nil {
+			c.ClearUserSession()
+			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), requestUserId))
+			return
+		}
+
+		if requestUser.IsGlobalAdmin() {
+			// global admin (owner == "built-in"): no restriction
+		} else if requestUser.IsAdmin && requestUser.Owner == owner {
+			// org admin for the requested owner: can list every user's resources within that org
+			user = ""
+		} else if requestUser.Owner != owner || requestUser.Name != user {
+			// standard user (or an admin of a *different* org): only their own resources
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
 	}
 
 	if sortField == "Direct" {
