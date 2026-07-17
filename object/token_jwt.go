@@ -70,11 +70,12 @@ type UserWithoutThirdIdp struct {
 	UpdatedTime string `xorm:"varchar(100)" json:"updatedTime"`
 	DeletedTime string `xorm:"varchar(100)" json:"deletedTime"`
 
-	Id                string   `xorm:"varchar(100) index" json:"id"`
-	Type              string   `xorm:"varchar(100)" json:"type"`
-	Password          string   `xorm:"varchar(150)" json:"password"`
-	PasswordSalt      string   `xorm:"varchar(100)" json:"passwordSalt"`
-	PasswordType      string   `xorm:"varchar(100)" json:"passwordType"`
+	Id   string `xorm:"varchar(100) index" json:"id"`
+	Type string `xorm:"varchar(100)" json:"type"`
+	// Password, PasswordSalt, and PasswordType are intentionally omitted:
+	// this struct is the payload signed verbatim into access_token /
+	// id_token / refresh_token, and credential-hash metadata must never
+	// leave the identity provider's backend (see TC-C39E51EF).
 	DisplayName       string   `xorm:"varchar(100)" json:"displayName"`
 	FirstName         string   `xorm:"varchar(100)" json:"firstName"`
 	LastName          string   `xorm:"varchar(100)" json:"lastName"`
@@ -131,11 +132,11 @@ type UserWithoutThirdIdp struct {
 	LastSigninIp   string `xorm:"varchar(100)" json:"lastSigninIp"`
 
 	// WebauthnCredentials []webauthn.Credential `xorm:"webauthnCredentials blob" json:"webauthnCredentials"`
-	PreferredMfaType string   `xorm:"varchar(100)" json:"preferredMfaType"`
-	RecoveryCodes    []string `xorm:"varchar(1000)" json:"recoveryCodes"`
-	TotpSecret       string   `xorm:"varchar(100)" json:"totpSecret"`
-	MfaPhoneEnabled  bool     `json:"mfaPhoneEnabled"`
-	MfaEmailEnabled  bool     `json:"mfaEmailEnabled"`
+	// PreferredMfaType, RecoveryCodes, TotpSecret, MfaPhoneEnabled, and
+	// MfaEmailEnabled are intentionally omitted: they are MFA
+	// configuration/credential-recovery secrets, not openid/profile
+	// identity claims, and must never be embedded in an issued token
+	// (see TC-C39E51EF).
 	// MultiFactorAuths    []*MfaProps           `xorm:"-" json:"multiFactorAuths,omitempty"`
 
 	Ldap       string            `xorm:"ldap varchar(100)" json:"ldap"`
@@ -225,9 +226,6 @@ func getUserWithoutThirdIdp(user *User) *UserWithoutThirdIdp {
 
 		Id:                user.Id,
 		Type:              user.Type,
-		Password:          user.Password,
-		PasswordSalt:      user.PasswordSalt,
-		PasswordType:      user.PasswordType,
 		DisplayName:       user.DisplayName,
 		FirstName:         user.FirstName,
 		LastName:          user.LastName,
@@ -282,12 +280,6 @@ func getUserWithoutThirdIdp(user *User) *UserWithoutThirdIdp {
 		CreatedIp:      user.CreatedIp,
 		LastSigninTime: user.LastSigninTime,
 		LastSigninIp:   user.LastSigninIp,
-
-		PreferredMfaType: user.PreferredMfaType,
-		RecoveryCodes:    user.RecoveryCodes,
-		TotpSecret:       user.TotpSecret,
-		MfaPhoneEnabled:  user.MfaPhoneEnabled,
-		MfaEmailEnabled:  user.MfaEmailEnabled,
 
 		Ldap:       user.Ldap,
 		Properties: user.Properties,
