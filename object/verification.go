@@ -322,7 +322,7 @@ func DisableVerificationCode(dest string) error {
 
 func CheckSigninCode(user *User, dest, code, lang string) error {
 	// check the login error times
-	err := checkSigninErrorTimes(user, lang)
+	err := CheckSigninErrorTimes(user, lang)
 	if err != nil {
 		return err
 	}
@@ -334,9 +334,9 @@ func CheckSigninCode(user *User, dest, code, lang string) error {
 
 	switch result.Code {
 	case VerificationSuccess:
-		return resetUserSigninErrorTimes(user)
+		return ResetUserSigninErrorTimes(user)
 	case wrongCodeError:
-		return recordSigninErrorInfo(user, lang)
+		return RecordSigninErrorInfo(user, lang)
 	default:
 		return errors.New(result.Msg)
 	}

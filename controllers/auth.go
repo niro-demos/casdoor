@@ -148,6 +148,19 @@ func (c *ApiController) HandleLoggedIn(application *object.Application, user *ob
 		}
 	}
 
+	// Authentication (password/MFA/passwordless) and every authorization
+	// check above have now fully succeeded, so this is the single point
+	// every login path (password, MFA-completed, CAS, SAML, quick sign-in,
+	// device flow) funnels through before a session is granted. Mint a
+	// fresh session id here, mirroring the rotation ClearUserSession()
+	// already does on logout, so a pre-auth (potentially attacker-planted)
+	// casdoor_session_id cookie can never be reused after login succeeds
+	// (CWE-384 session fixation).
+	if err := c.SessionRegenerateID(); err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	if form.Type == ResponseTypeLogin {
 		c.SetSessionUsername(userId)
 		util.LogInfo(c.Ctx, "API: [%s] signed in", userId)
@@ -268,11 +281,23 @@ func (c *ApiController) HandleLoggedIn(application *object.Application, user *ob
 		service := c.Ctx.Input.Query("service")
 		resp = wrapErrorResponse(nil)
 		if service != "" {
-			st, err := object.GenerateCasToken(userId, service)
+			// A CAS service ticket must only ever be minted for a service URL
+			// the application owner registered (application.RedirectUris) --
+			// the same check GetApplicationLogin() already enforces for the
+			// cas type via CheckCasLogin(). Skipping it here let any
+			// authenticated user mint a ticket for an arbitrary service, which
+			// CasP3ProxyValidate later trusts enough to dial out to a
+			// caller-supplied pgtUrl (SSRF).
+			err := object.CheckCasLogin(application, c.GetAcceptLanguage(), service)
 			if err != nil {
 				resp = wrapErrorResponse(err)
 			} else {
-				resp.Data = st
+				st, err := object.GenerateCasToken(userId, service)
+				if err != nil {
+					resp = wrapErrorResponse(err)
+				} else {
+					resp.Data = st
+				}
 			}
 		}
 
@@ -1199,6 +1224,19 @@ func (c *ApiController) Login() {
 				c.ResponseError("Invalid multi-factor authentication type")
 				return
 			}
+
+			// Apply the same failed-attempt lockout bookkeeping the password
+			// step already applies (object.CheckPassword ->
+			// CheckSigninErrorTimes/RecordSigninErrorInfo/
+			// ResetUserSigninErrorTimes), so the MFA passcode can't be
+			// brute-forced at network speed once the lockout limit is hit.
+			err = object.CheckSigninErrorTimes(user, c.GetAcceptLanguage())
+			if err != nil {
+				c.Ctx.Input.SetParam("recordDetail", object.SigninReasonMfaFailed)
+				c.ResponseError(err.Error())
+				return
+			}
+
 			user.CountryCode = user.GetCountryCode(user.CountryCode)
 			mfaUtil := object.GetMfaUtil(authForm.MfaType, user.GetMfaProps(authForm.MfaType, false))
 			if mfaUtil == nil {
@@ -1216,9 +1254,16 @@ func (c *ApiController) Login() {
 				err = mfaUtil.Verify(authForm.Passcode)
 				if err != nil {
 					c.Ctx.Input.SetParam("recordDetail", object.SigninReasonMfaFailed)
-					c.ResponseError(err.Error())
+					recordErr := object.RecordSigninErrorInfo(user, c.GetAcceptLanguage())
+					c.ResponseError(recordErr.Error())
 					return
 				}
+			}
+
+			err = object.ResetUserSigninErrorTimes(user)
+			if err != nil {
+				c.ResponseError(err.Error())
+				return
 			}
 
 			if authForm.EnableMfaRemember {

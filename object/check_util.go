@@ -37,7 +37,11 @@ func isValidRealName(s string) bool {
 	return reRealName.MatchString(s)
 }
 
-func resetUserSigninErrorTimes(user *User) error {
+// ResetUserSigninErrorTimes clears a user's failed-signin counter after a
+// successful authentication step. Exported so callers outside this package
+// (e.g. controllers.Login()'s MFA step) can apply the same lockout
+// bookkeeping CheckPassword() already applies to the password step.
+func ResetUserSigninErrorTimes(user *User) error {
 	// if the password is correct and wrong times is not zero, reset the error times
 	if user.SigninWrongTimes == 0 {
 		return nil
@@ -70,7 +74,13 @@ func GetFailedSigninConfigByUser(user *User) (int, int, error) {
 	return failedSigninLimit, failedSigninFrozenTime, nil
 }
 
-func recordSigninErrorInfo(user *User, lang string, options ...bool) error {
+// RecordSigninErrorInfo records one failed authentication attempt (password
+// or MFA passcode) against a user, freezing the account once
+// GetFailedSigninConfigByUser's limit is reached. Exported so callers
+// outside this package (e.g. controllers.Login()'s MFA step) can apply the
+// same lockout bookkeeping CheckPassword() already applies to the password
+// step.
+func RecordSigninErrorInfo(user *User, lang string, options ...bool) error {
 	enableCaptcha := false
 	if len(options) > 0 {
 		enableCaptcha = options[0]
