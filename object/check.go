@@ -374,7 +374,12 @@ func CheckUserPassword(organization string, username string, password string, la
 	}
 
 	if user == nil || user.IsDeleted {
-		return nil, newSigninError(SigninReasonUserNotFound, fmt.Sprintf(i18n.Translate(lang, "general:The user: %s doesn't exist"), util.GetId(organization, username)))
+		// Deliberately reuse the generic wrong-password message here instead
+		// of a "doesn't exist" style message: revealing that a username is
+		// unregistered lets an unauthenticated caller enumerate valid
+		// accounts. The distinct SigninReasonUserNotFound reason is still
+		// recorded for internal audit logging.
+		return nil, newSigninError(SigninReasonUserNotFound, i18n.Translate(lang, "check:password or code is incorrect"))
 	}
 
 	if user.IsForbidden {

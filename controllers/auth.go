@@ -585,7 +585,11 @@ func (c *ApiController) Login() {
 				c.ResponseError(err.Error(), nil)
 				return
 			} else if user == nil {
-				c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(authForm.Organization, authForm.Username)))
+				// Reuse the generic sign-in error instead of a "doesn't
+				// exist" message: this endpoint is unauthenticated, so
+				// revealing username existence here would let a caller
+				// enumerate valid accounts.
+				c.ResponseError(c.T("check:password or code is incorrect"))
 				return
 			}
 
@@ -649,7 +653,11 @@ func (c *ApiController) Login() {
 				c.ResponseError(err.Error(), nil)
 				return
 			} else if user == nil {
-				c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(authForm.Organization, authForm.Username)))
+				// Reuse the generic sign-in error instead of a "doesn't
+				// exist" message: this endpoint is unauthenticated, so
+				// revealing username existence here would let a caller
+				// enumerate valid accounts.
+				c.ResponseError(c.T("check:password or code is incorrect"))
 				return
 			}
 
