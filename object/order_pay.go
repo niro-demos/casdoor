@@ -58,6 +58,10 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 	var productInfos []ProductInfo
 	orderPrice := 0.0
 	for _, productInfo := range reqProductInfos {
+		if productInfo.Quantity <= 0 {
+			return nil, fmt.Errorf("the product quantity should be greater than zero")
+		}
+
 		product := productMap[productInfo.Name]
 
 		var productPrice float64
@@ -172,6 +176,13 @@ func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) 
 	pProvider, err := GetPaymentProvider(provider)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// Defense in depth: even if an order somehow ends up with a non-positive
+	// price, never let the internal Balance provider "pay" it -- that would
+	// flip a negative price into a credit and mint the buyer free balance.
+	if provider.Type == "Balance" && order.Price <= 0 {
+		return nil, nil, fmt.Errorf("cannot pay order: %s with the Balance provider, order price must be greater than zero", order.GetId())
 	}
 
 	owner := baseProduct.Owner
