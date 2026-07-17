@@ -22,17 +22,10 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-	_ "unsafe"
 
 	beegoContext "github.com/beego/beego/v2/server/web/context"
 	"github.com/casdoor/casdoor/object"
 )
-
-//go:linkname testOrmer github.com/casdoor/casdoor/object.ormer
-var testOrmer *object.Ormer
-
-//go:linkname testCreateDatabase github.com/casdoor/casdoor/object.createDatabase
-var testCreateDatabase bool
 
 func TestUnauthenticatedLoginFailuresDoNotRevealAccountExistence(t *testing.T) {
 	setupAccountEnumerationStore(t)
@@ -95,9 +88,7 @@ func setupAccountEnumerationStore(t *testing.T) {
 	t.Cleanup(func() {
 		adapter.Engine.Close()
 	})
-	testOrmer = adapter
-	testCreateDatabase = false
-	object.CreateTables()
+	useControllerTestStore(adapter)
 
 	_, err = object.AddOrganization(&object.Organization{
 		Owner:        "admin",
