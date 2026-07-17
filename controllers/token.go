@@ -19,10 +19,59 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/beego/beego/v2/core/logs"
 	"github.com/beego/beego/v2/core/utils/pagination"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
+
+type publicToken struct {
+	Owner        string `json:"owner"`
+	Name         string `json:"name"`
+	CreatedTime  string `json:"createdTime"`
+	Application  string `json:"application"`
+	Organization string `json:"organization"`
+	User         string `json:"user"`
+	ExpiresIn    int    `json:"expiresIn"`
+	Scope        string `json:"scope"`
+	TokenType    string `json:"tokenType"`
+	GrantType    string `json:"grantType"`
+	CodeIsUsed   bool   `json:"codeIsUsed"`
+	CodeExpireIn int64  `json:"codeExpireIn"`
+	Resource     string `json:"resource"`
+	DPoPJkt      string `json:"dPoPJkt"`
+}
+
+func getPublicToken(token *object.Token) *publicToken {
+	if token == nil {
+		return nil
+	}
+
+	return &publicToken{
+		Owner:        token.Owner,
+		Name:         token.Name,
+		CreatedTime:  token.CreatedTime,
+		Application:  token.Application,
+		Organization: token.Organization,
+		User:         token.User,
+		ExpiresIn:    token.ExpiresIn,
+		Scope:        token.Scope,
+		TokenType:    token.TokenType,
+		GrantType:    token.GrantType,
+		CodeIsUsed:   token.CodeIsUsed,
+		CodeExpireIn: token.CodeExpireIn,
+		Resource:     token.Resource,
+		DPoPJkt:      token.DPoPJkt,
+	}
+}
+
+func getPublicTokens(tokens []*object.Token) []*publicToken {
+	res := make([]*publicToken, 0, len(tokens))
+	for _, token := range tokens {
+		res = append(res, getPublicToken(token))
+	}
+	return res
+}
 
 // GetTokens
 // @Title GetTokens
@@ -42,30 +91,38 @@ func (c *ApiController) GetTokens() {
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 	organization := c.Ctx.Input.Query("organization")
+	if err := validateListQuery(field, value, sortField, sortOrder, tokenListFields); err != nil {
+		c.ResponseError(invalidListParameterMessage)
+		return
+	}
+
 	if limit == "" || page == "" {
 		token, err := object.GetTokens(owner, organization)
 		if err != nil {
-			c.ResponseError(err.Error())
+			logs.Error("failed to get tokens: %v", err)
+			c.ResponseError("Failed to get tokens")
 			return
 		}
 
-		c.ResponseOk(token)
+		c.ResponseOk(getPublicTokens(token))
 	} else {
 		limit := util.ParseInt(limit)
 		count, err := object.GetTokenCount(owner, organization, field, value)
 		if err != nil {
-			c.ResponseError(err.Error())
+			logs.Error("failed to count tokens: %v", err)
+			c.ResponseError("Failed to get tokens")
 			return
 		}
 
 		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
 		tokens, err := object.GetPaginationTokens(owner, organization, paginator.Offset(), limit, field, value, sortField, sortOrder)
 		if err != nil {
-			c.ResponseError(err.Error())
+			logs.Error("failed to get paginated tokens: %v", err)
+			c.ResponseError("Failed to get tokens")
 			return
 		}
 
-		c.ResponseOk(tokens, paginator.Nums())
+		c.ResponseOk(getPublicTokens(tokens), paginator.Nums())
 	}
 }
 
@@ -96,7 +153,7 @@ func (c *ApiController) GetToken() {
 		return
 	}
 
-	c.ResponseOk(token)
+	c.ResponseOk(getPublicToken(token))
 }
 
 // UpdateToken

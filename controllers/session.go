@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/beego/beego/v2/core/logs"
 	"github.com/beego/beego/v2/core/utils/pagination"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
@@ -39,11 +40,16 @@ func (c *ApiController) GetSessions() {
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 	owner := c.Ctx.Input.Query("owner")
+	if err := validateListQuery(field, value, sortField, sortOrder, sessionListFields); err != nil {
+		c.ResponseError(invalidListParameterMessage)
+		return
+	}
 
 	if limit == "" || page == "" {
 		sessions, err := object.GetSessions(owner)
 		if err != nil {
-			c.ResponseError(err.Error())
+			logs.Error("failed to get sessions: %v", err)
+			c.ResponseError("Failed to get sessions")
 			return
 		}
 
@@ -52,13 +58,15 @@ func (c *ApiController) GetSessions() {
 		limit := util.ParseInt(limit)
 		count, err := object.GetSessionCount(owner, field, value)
 		if err != nil {
-			c.ResponseError(err.Error())
+			logs.Error("failed to count sessions: %v", err)
+			c.ResponseError("Failed to get sessions")
 			return
 		}
 		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
 		sessions, err := object.GetPaginationSessions(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
 		if err != nil {
-			c.ResponseError(err.Error())
+			logs.Error("failed to get paginated sessions: %v", err)
+			c.ResponseError("Failed to get sessions")
 			return
 		}
 
