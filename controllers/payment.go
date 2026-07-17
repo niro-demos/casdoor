@@ -259,6 +259,13 @@ func (c *ApiController) InvoicePayment() {
 		return
 	}
 
+	userId := c.GetSessionUsername()
+	paymentUserId := util.GetId(payment.Owner, payment.User)
+	if userId != paymentUserId && !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	invoiceUrl, err := object.InvoicePayment(payment)
 	if err != nil {
 		c.ResponseError(err.Error())
