@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	_ "unsafe"
 
 	"github.com/beego/beego/v2/server/web"
 	webcontext "github.com/beego/beego/v2/server/web/context"
@@ -17,9 +16,6 @@ import (
 )
 
 var readAuthInitOnce sync.Once
-
-//go:linkname objectCreateDatabase github.com/casdoor/casdoor/object.createDatabase
-var objectCreateDatabase bool
 
 type responseEnvelope struct {
 	Status string          `json:"status"`
@@ -50,7 +46,7 @@ func initReadAuthTest(t *testing.T) {
 			t.Fatalf("load test config: %v", err)
 		}
 		web.BConfig.WebConfig.Session.SessionOn = true
-		objectCreateDatabase = false
+		controllerTestCreateDatabase = false
 		object.InitAdapter()
 		object.CreateTables()
 		object.InitDb()
