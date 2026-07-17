@@ -249,21 +249,19 @@ func GetWebFinger(resource string, rels []string, host string, applicationName s
 	}
 
 	resourceType := resourceSplit[0]
-	resourceValue := resourceSplit[1]
 
 	oidcDiscovery := GetOidcDiscovery(host, applicationName)
 
 	switch resourceType {
 	case "acct":
-		user, err := GetUserByEmailOnly(resourceValue)
-		if err != nil {
-			return wf, err
-		}
-
-		if user == nil {
-			return wf, fmt.Errorf("user not found")
-		}
-
+		// Deliberately does not look up whether resourceValue belongs to a
+		// registered account: this endpoint is unauthenticated (RFC 7033
+		// discovery), and the response never carries any user-specific data
+		// (only the requested resource echoed back and a static issuer
+		// link) — so branching the response on "does this account exist"
+		// would only serve as a user-enumeration oracle, not add any real
+		// functionality. Always answer the same way regardless of
+		// existence.
 		wf.Subject = resource
 
 		for _, rel := range rels {

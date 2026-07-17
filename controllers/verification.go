@@ -208,12 +208,17 @@ func (c *ApiController) SendVerificationCode() {
 			c.ResponseError(err.Error())
 			return
 		}
-		if user == nil || user.IsDeleted {
-			c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
-			return
+		if user != nil && user.IsDeleted {
+			user = nil
 		}
 
-		if user.IsForbidden {
+		// Don't respond based on whether the account exists here — that
+		// would let an unauthenticated caller enumerate usernames via this
+		// endpoint. Let processing continue with user == nil; the
+		// dest-type/email/phone handling below applies its own checks
+		// without exposing a response that differs from any other
+		// validation failure at this stage.
+		if user != nil && user.IsForbidden {
 			c.ResponseError(c.T("check:The user is forbidden to sign in, please contact the administrator"))
 			return
 		}

@@ -18,10 +18,7 @@
 package controllers
 
 import (
-	"fmt"
-
 	"github.com/casdoor/casdoor/object"
-	"github.com/casdoor/casdoor/util"
 )
 
 // FaceIDSigninBegin
@@ -41,12 +38,11 @@ func (c *ApiController) FaceIDSigninBegin() {
 		c.ResponseError(err.Error())
 		return
 	}
-	if user == nil {
-		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(userOwner, userName)))
-		return
-	}
 
-	if len(user.FaceIds) == 0 {
+	// Respond identically whether the account doesn't exist or simply has
+	// no face data enrolled — branching on account existence here would let
+	// an unauthenticated caller enumerate valid usernames.
+	if user == nil || len(user.FaceIds) == 0 {
 		c.ResponseError(c.T("check:Face data does not exist, cannot log in"))
 		return
 	}
