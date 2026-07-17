@@ -41,7 +41,11 @@ func (c *ApiController) GetSessions() {
 	owner := c.Ctx.Input.Query("owner")
 
 	if limit == "" || page == "" {
-		sessions, err := object.GetSessions(owner)
+		// Sessions are masked at this response boundary: SessionId values are
+		// live, replayable casdoor_session_id cookie values, and this
+		// endpoint must never hand them back to admins as a reusable
+		// credential for another user (see GetMaskedSessions).
+		sessions, err := object.GetMaskedSessions(object.GetSessions(owner))
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
@@ -56,7 +60,7 @@ func (c *ApiController) GetSessions() {
 			return
 		}
 		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
-		sessions, err := object.GetPaginationSessions(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		sessions, err := object.GetMaskedSessions(object.GetPaginationSessions(owner, paginator.Offset(), limit, field, value, sortField, sortOrder))
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
@@ -76,7 +80,9 @@ func (c *ApiController) GetSessions() {
 func (c *ApiController) GetSingleSession() {
 	id := c.Ctx.Input.Query("sessionPkId")
 
-	session, err := object.GetSingleSession(id)
+	// See GetSessions: mask the raw, replayable SessionId values before
+	// they leave the API boundary.
+	session, err := object.GetMaskedSession(object.GetSingleSession(id))
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -141,7 +147,10 @@ func (c *ApiController) DeleteSession() {
 	curSessionId := c.Ctx.Input.CruSession.SessionID(context.Background())
 
 	sessionId := c.Ctx.Input.Query("sessionId")
-	if curSessionId == sessionId && sessionId != "" {
+	// sessionId may be the raw current-session token or (from the admin UI,
+	// which only ever sees masked values) its masked display identifier;
+	// object.SessionIdMatches recognizes either form.
+	if sessionId != "" && object.SessionIdMatches(curSessionId, sessionId) {
 		c.ResponseError(fmt.Sprintf(c.T("session:session id %s is the current session and cannot be deleted"), curSessionId))
 		return
 	}

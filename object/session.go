@@ -16,6 +16,8 @@ package object
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 
@@ -23,6 +25,39 @@ import (
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
 )
+
+// sessionIdDisplayLength is how many hex characters of the derived hash are
+// shown to admins: long enough to tell sessions apart in the UI, and (being
+// a one-way hash rather than the raw token) never usable as a replacement
+// for the real casdoor_session_id cookie value.
+const sessionIdDisplayLength = 12
+
+// maskSessionId derives a stable, non-reversible display identifier for a
+// raw session token. GetSessions/GetSingleSession must never return the raw
+// token verbatim: it is the exact value beego accepts back as the
+// casdoor_session_id auth cookie, so returning it to admins hands them a
+// directly replayable credential for every user in scope.
+func maskSessionId(sessionId string) string {
+	if sessionId == "" {
+		return ""
+	}
+
+	sum := sha256.Sum256([]byte(sessionId))
+	return hex.EncodeToString(sum[:])[:sessionIdDisplayLength]
+}
+
+// SessionIdMatches reports whether candidate identifies rawSessionId. It
+// matches either the raw value itself (server-derived callers that already
+// hold the real token, e.g. the caller's own current session from
+// CruSession.SessionID) or that token's masked display identifier
+// (admin-facing callers that only ever saw the masked value returned by
+// GetSessions/GetSingleSession).
+func SessionIdMatches(rawSessionId, candidate string) bool {
+	if candidate == "" || rawSessionId == "" {
+		return false
+	}
+	return rawSessionId == candidate || maskSessionId(rawSessionId) == candidate
+}
 
 var (
 	CasdoorApplication  = "app-built-in"
@@ -106,6 +141,46 @@ func GetSingleSession(id string) (*Session, error) {
 	}
 
 	return &session, nil
+}
+
+// GetMaskedSession replaces a session's raw, replayable SessionId values
+// with derived display identifiers (see maskSessionId) so API responses
+// never leak a credential that can be used to authenticate as this
+// session's owner. Call this at the response boundary only — internal
+// callers that need the real token (deletion, duplication checks) must keep
+// working from the unmasked object.GetSingleSession/GetSessions result.
+func GetMaskedSession(session *Session, errs ...error) (*Session, error) {
+	if len(errs) > 0 && errs[0] != nil {
+		return nil, errs[0]
+	}
+
+	if session == nil {
+		return nil, nil
+	}
+
+	maskedIds := make([]string, len(session.SessionId))
+	for i, id := range session.SessionId {
+		maskedIds[i] = maskSessionId(id)
+	}
+	session.SessionId = maskedIds
+
+	return session, nil
+}
+
+// GetMaskedSessions applies GetMaskedSession to every session in the slice.
+func GetMaskedSessions(sessions []*Session, errs ...error) ([]*Session, error) {
+	if len(errs) > 0 && errs[0] != nil {
+		return nil, errs[0]
+	}
+
+	var err error
+	for _, session := range sessions {
+		session, err = GetMaskedSession(session)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return sessions, nil
 }
 
 func UpdateSession(id string, session *Session) (bool, error) {
@@ -214,12 +289,28 @@ func DeleteSessionId(id string, sessionId string) (bool, error) {
 		return false, nil
 	}
 
-	owner, _, application := util.GetOwnerAndNameAndOtherFromId(id)
-	if owner == CasdoorOrganization && application == CasdoorApplication {
-		DeleteBeegoSession([]string{sessionId})
+	// sessionId may be either the raw token (server-derived callers that
+	// already hold it, e.g. the caller's own current session) or its masked
+	// display identifier (admin callers, who only ever saw the masked value
+	// from GetSessions/GetSingleSession). Resolve to the real stored token
+	// before touching the beego session store or the persisted record.
+	rawSessionId := ""
+	for _, sid := range session.SessionId {
+		if SessionIdMatches(sid, sessionId) {
+			rawSessionId = sid
+			break
+		}
+	}
+	if rawSessionId == "" {
+		return false, nil
 	}
 
-	session.SessionId = util.DeleteVal(session.SessionId, sessionId)
+	owner, _, application := util.GetOwnerAndNameAndOtherFromId(id)
+	if owner == CasdoorOrganization && application == CasdoorApplication {
+		DeleteBeegoSession([]string{rawSessionId})
+	}
+
+	session.SessionId = util.DeleteVal(session.SessionId, rawSessionId)
 	if len(session.SessionId) == 0 {
 		return DeleteSession(id, "")
 	} else {
@@ -254,7 +345,7 @@ func IsSessionDuplicated(id string, sessionId string) (bool, error) {
 		} else if len(session.SessionId) < 1 {
 			return false, nil
 		} else {
-			return session.SessionId[0] != sessionId, nil
+			return !SessionIdMatches(session.SessionId[0], sessionId), nil
 		}
 	}
 }
