@@ -180,6 +180,7 @@ func (c *ApiController) GetOAuthToken() {
 	grantType := c.Ctx.Input.Query("grant_type")
 	code := c.Ctx.Input.Query("code")
 	verifier := c.Ctx.Input.Query("code_verifier")
+	redirectUri := c.Ctx.Input.Query("redirect_uri")
 	scope := c.Ctx.Input.Query("scope")
 	nonce := c.Ctx.Input.Query("nonce")
 	username := c.Ctx.Input.Query("username")
@@ -222,6 +223,9 @@ func (c *ApiController) GetOAuthToken() {
 			}
 			if verifier == "" {
 				verifier = tokenRequest.Verifier
+			}
+			if redirectUri == "" {
+				redirectUri = tokenRequest.RedirectUri
 			}
 			if scope == "" {
 				scope = tokenRequest.Scope
@@ -266,8 +270,8 @@ func (c *ApiController) GetOAuthToken() {
 	dpopProof := c.Ctx.Request.Header.Get("DPoP")
 
 	host := c.Ctx.Request.Host
-	var pendingDeviceCode string
 	var pendingDeviceAuthCache object.DeviceAuthCache
+	var pendingDeviceCode string
 
 	if deviceCode != "" {
 		deviceAuthCache, ok := object.DeviceAuthMap.Load(deviceCode)
@@ -333,10 +337,21 @@ func (c *ApiController) GetOAuthToken() {
 			c.ServeJSON()
 			return
 		}
-		username = deviceAuthCacheCast.UserName
-		scope = deviceAuthCacheCast.Scope
+		claimedDeviceAuthCache, claimed := object.DeviceAuthMap.ClaimApproved(deviceCode)
+		if !claimed {
+			c.Data["json"] = &object.TokenError{
+				Error:            "access_denied",
+				ErrorDescription: "device_code has already been used",
+			}
+			c.SetTokenErrorHttpStatus()
+			c.ServeJSON()
+			return
+		}
+
+		username = claimedDeviceAuthCache.UserName
+		scope = claimedDeviceAuthCache.Scope
 		pendingDeviceCode = deviceCode
-		pendingDeviceAuthCache = deviceAuthCacheCast
+		pendingDeviceAuthCache = claimedDeviceAuthCache
 	} else if grantType == "urn:ietf:params:oauth:grant-type:device_code" {
 		c.Data["json"] = &object.TokenError{
 			Error:            "invalid_request",
@@ -347,16 +362,18 @@ func (c *ApiController) GetOAuthToken() {
 		return
 	}
 
-	token, err := object.GetOAuthToken(grantType, clientId, clientSecret, code, verifier, scope, nonce, username, password, host, refreshToken, tag, avatar, c.GetAcceptLanguage(), subjectToken, subjectTokenType, assertion, clientAssertion, clientAssertionType, audience, resource, dpopProof)
+	token, err := object.GetOAuthToken(grantType, clientId, clientSecret, code, verifier, redirectUri, scope, nonce, username, password, host, refreshToken, tag, avatar, c.GetAcceptLanguage(), subjectToken, subjectTokenType, assertion, clientAssertion, clientAssertionType, audience, resource, dpopProof)
 	if err != nil {
+		if pendingDeviceCode != "" {
+			object.DeviceAuthMap.RestoreApproved(pendingDeviceCode, pendingDeviceAuthCache)
+		}
 		c.ResponseError(err.Error())
 		return
 	}
 
 	if pendingDeviceCode != "" {
-		if _, isTokenError := token.(*object.TokenError); !isTokenError {
-			pendingDeviceAuthCache.Status = object.DeviceAuthStatusTokenIssued
-			object.DeviceAuthMap.Store(pendingDeviceCode, pendingDeviceAuthCache)
+		if _, isTokenError := token.(*object.TokenError); isTokenError {
+			object.DeviceAuthMap.RestoreApproved(pendingDeviceCode, pendingDeviceAuthCache)
 		}
 	}
 

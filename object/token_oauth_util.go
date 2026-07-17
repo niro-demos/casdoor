@@ -377,6 +377,7 @@ func GetOAuthCode(userId string, clientId string, provider string, signinMethod 
 		CodeChallenge: challenge,
 		CodeIsUsed:    false,
 		CodeExpireIn:  time.Now().Add(time.Minute * 5).Unix(),
+		RedirectUri:   redirectUri,
 		Resource:      resource,
 	}
 	_, err = AddToken(token)

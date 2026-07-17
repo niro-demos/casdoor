@@ -102,7 +102,7 @@ func (c *RootController) CasP3ProxyValidate() {
 	// find the token
 	if ok {
 		// check whether service is the one for which we previously issued token
-		if strings.HasPrefix(service, issuedService) || strings.HasPrefix(queryUnescape(service), issuedService) {
+		if service == issuedService {
 			serviceResponse.Success = response
 		} else {
 			// service not match

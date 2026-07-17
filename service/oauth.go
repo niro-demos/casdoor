@@ -68,7 +68,8 @@ func handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	//	return
 	//}
 
-	token, tokenError, err := object.GetAuthorizationCodeToken(application, application.ClientSecret, code, "", "")
+	callbackUrl := fmt.Sprintf("%s://%s/caswaf-handler", getScheme(r), r.Host)
+	token, tokenError, err := object.GetAuthorizationCodeToken(application, application.ClientSecret, code, "", callbackUrl, "")
 	if tokenError != nil {
 		responseError(w, "CasWAF error: casdoorClient.GetOAuthToken() error: %s", tokenError.Error)
 		return

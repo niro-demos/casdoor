@@ -36,6 +36,8 @@ type deviceAuthStore interface {
 	Delete(key any)
 	LoadAndDelete(key any) (any, bool)
 	Range(f func(key, value any) bool)
+	ClaimApproved(key any) (DeviceAuthCache, bool)
+	RestoreApproved(key any, cache DeviceAuthCache)
 }
 
 const deviceAuthRedisPrefix = "casdoor:device_auth:"
@@ -95,7 +97,8 @@ func newRedisClient(endpoint string) (*redis.Client, error) {
 // ── in-memory implementation (default) ──────────────────────────────────────
 
 type memoryDeviceAuthStore struct {
-	m sync.Map
+	mu sync.Mutex
+	m  sync.Map
 }
 
 func (s *memoryDeviceAuthStore) Load(key any) (any, bool)          { return s.m.Load(key) }
@@ -103,6 +106,39 @@ func (s *memoryDeviceAuthStore) Store(key, value any)              { s.m.Store(k
 func (s *memoryDeviceAuthStore) Delete(key any)                    { s.m.Delete(key) }
 func (s *memoryDeviceAuthStore) LoadAndDelete(key any) (any, bool) { return s.m.LoadAndDelete(key) }
 func (s *memoryDeviceAuthStore) Range(f func(key, value any) bool) { s.m.Range(f) }
+
+func (s *memoryDeviceAuthStore) ClaimApproved(key any) (DeviceAuthCache, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value, ok := s.m.Load(key)
+	if !ok {
+		return DeviceAuthCache{}, false
+	}
+	cache, ok := value.(DeviceAuthCache)
+	if !ok || cache.Status != DeviceAuthStatusApproved {
+		return DeviceAuthCache{}, false
+	}
+	cache.Status = DeviceAuthStatusTokenIssued
+	s.m.Store(key, cache)
+	return cache, true
+}
+
+func (s *memoryDeviceAuthStore) RestoreApproved(key any, cache DeviceAuthCache) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value, ok := s.m.Load(key)
+	if !ok {
+		return
+	}
+	current, ok := value.(DeviceAuthCache)
+	if !ok || current.Status != DeviceAuthStatusTokenIssued {
+		return
+	}
+	cache.Status = DeviceAuthStatusApproved
+	s.m.Store(key, cache)
+}
 
 // ── Redis implementation ─────────────────────────────────────────────────────
 
@@ -195,3 +231,93 @@ func (s *redisDeviceAuthStore) LoadAndDelete(key any) (any, bool) {
 // Range is a no-op for the Redis backend: entries expire automatically via TTL,
 // so the periodic sweep in InitCleanupDeviceAuthMap is not needed.
 func (s *redisDeviceAuthStore) Range(_ func(key, value any) bool) {}
+
+func (s *redisDeviceAuthStore) ClaimApproved(key any) (DeviceAuthCache, bool) {
+	rk, ok := s.redisKey(key)
+	if !ok {
+		return DeviceAuthCache{}, false
+	}
+
+	ctx := context.Background()
+	var claimed DeviceAuthCache
+	err := s.client.Watch(ctx, func(tx *redis.Tx) error {
+		data, err := tx.Get(ctx, rk).Bytes()
+		if err != nil {
+			return err
+		}
+
+		var cache DeviceAuthCache
+		if err := json.Unmarshal(data, &cache); err != nil {
+			return err
+		}
+		if cache.Status != DeviceAuthStatusApproved {
+			return redis.TxFailedErr
+		}
+
+		cache.Status = DeviceAuthStatusTokenIssued
+		encoded, err := json.Marshal(cache)
+		if err != nil {
+			return err
+		}
+
+		ttl := cache.ExpiresIn
+		if ttl <= 0 {
+			ttl = DeviceAuthExpiresIn
+		}
+		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			pipe.Set(ctx, rk, encoded, time.Duration(ttl)*time.Second)
+			return nil
+		})
+		if err == nil {
+			claimed = cache
+		}
+		return err
+	}, rk)
+
+	if err != nil {
+		return DeviceAuthCache{}, false
+	}
+	return claimed, true
+}
+
+func (s *redisDeviceAuthStore) RestoreApproved(key any, cache DeviceAuthCache) {
+	rk, ok := s.redisKey(key)
+	if !ok {
+		return
+	}
+
+	ctx := context.Background()
+	err := s.client.Watch(ctx, func(tx *redis.Tx) error {
+		data, err := tx.Get(ctx, rk).Bytes()
+		if err != nil {
+			return err
+		}
+
+		var current DeviceAuthCache
+		if err := json.Unmarshal(data, &current); err != nil {
+			return err
+		}
+		if current.Status != DeviceAuthStatusTokenIssued {
+			return redis.TxFailedErr
+		}
+
+		cache.Status = DeviceAuthStatusApproved
+		encoded, err := json.Marshal(cache)
+		if err != nil {
+			return err
+		}
+
+		ttl := cache.ExpiresIn
+		if ttl <= 0 {
+			ttl = DeviceAuthExpiresIn
+		}
+		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			pipe.Set(ctx, rk, encoded, time.Duration(ttl)*time.Second)
+			return nil
+		})
+		return err
+	}, rk)
+	if err != nil && err != redis.TxFailedErr {
+		logs.Warn("device_auth_store: Redis restore failed for key %s: %v", rk, err)
+	}
+}

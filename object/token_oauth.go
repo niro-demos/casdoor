@@ -23,7 +23,7 @@ import (
 	"github.com/casdoor/casdoor/util"
 )
 
-func GetOAuthToken(grantType string, clientId string, clientSecret string, code string, verifier string, scope string, nonce string, username string, password string, host string, refreshToken string, tag string, avatar string, lang string, subjectToken string, subjectTokenType string, assertion string, clientAssertion string, clientAssertionType string, audience string, resource string, dpopProof string) (interface{}, error) {
+func GetOAuthToken(grantType string, clientId string, clientSecret string, code string, verifier string, redirectUri string, scope string, nonce string, username string, password string, host string, refreshToken string, tag string, avatar string, lang string, subjectToken string, subjectTokenType string, assertion string, clientAssertion string, clientAssertionType string, audience string, resource string, dpopProof string) (interface{}, error) {
 	var (
 		application *Application
 		err         error
@@ -83,7 +83,7 @@ func GetOAuthToken(grantType string, clientId string, clientSecret string, code 
 	var tokenError *TokenError
 	switch grantType {
 	case "authorization_code": // Authorization Code Grant
-		token, tokenError, err = GetAuthorizationCodeToken(application, clientSecret, code, verifier, resource)
+		token, tokenError, err = GetAuthorizationCodeToken(application, clientSecret, code, verifier, redirectUri, resource)
 	case "password": // Resource Owner Password Credentials Grant
 		token, tokenError, err = GetPasswordToken(application, username, password, scope, host)
 	case "client_credentials": // Client Credentials Grant
@@ -151,7 +151,7 @@ func GetOAuthToken(grantType string, clientId string, clientSecret string, code 
 }
 
 // GetAuthorizationCodeToken handles the Authorization Code Grant flow.
-func GetAuthorizationCodeToken(application *Application, clientSecret string, code string, verifier string, resource string) (*Token, *TokenError, error) {
+func GetAuthorizationCodeToken(application *Application, clientSecret string, code string, verifier string, redirectUri string, resource string) (*Token, *TokenError, error) {
 	if code == "" {
 		return nil, &TokenError{
 			Error:            InvalidRequest,
@@ -237,6 +237,13 @@ func GetAuthorizationCodeToken(application *Application, clientSecret string, co
 		}, nil
 	}
 
+	if !authorizationCodeRedirectMatches(token, redirectUri) {
+		return nil, &TokenError{
+			Error:            InvalidGrant,
+			ErrorDescription: "redirect_uri does not match authorization request",
+		}, nil
+	}
+
 	// RFC 8707: Validate resource parameter matches the one in the authorization request
 	if resource != token.Resource {
 		return nil, &TokenError{
@@ -254,6 +261,13 @@ func GetAuthorizationCodeToken(application *Application, clientSecret string, co
 		}, nil
 	}
 	return token, nil, nil
+}
+
+func authorizationCodeRedirectMatches(token *Token, redirectUri string) bool {
+	if token == nil || token.RedirectUri == "" {
+		return false
+	}
+	return redirectUri == token.RedirectUri
 }
 
 // GetPasswordToken handles the Resource Owner Password Credentials Grant flow.
