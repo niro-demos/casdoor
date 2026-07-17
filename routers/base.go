@@ -252,18 +252,18 @@ func parseBearerToken(ctx *context.Context) string {
 	return tokens[1]
 }
 
-func getHostname(s string) string {
+func getHostname(s string) (string, error) {
 	if s == "" {
-		return ""
+		return "", nil
 	}
 
 	l, err := url.Parse(s)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 
 	res := l.Hostname()
-	return res
+	return res, nil
 }
 
 func removePort(s string) string {

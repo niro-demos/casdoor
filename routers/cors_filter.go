@@ -45,7 +45,12 @@ func setCorsHeaders(ctx *context.Context, origin string) {
 func CorsFilter(ctx *context.Context) {
 	origin := ctx.Input.Header(headerOrigin)
 	originConf := conf.GetConfigString("origin")
-	originHostname := getHostname(origin)
+	originHostname, err := getHostname(origin)
+	if err != nil {
+		ctx.ResponseWriter.WriteHeader(http.StatusBadRequest)
+		responseError(ctx, err.Error())
+		return
+	}
 	host := removePort(ctx.Request.Host)
 
 	if origin == "null" {
