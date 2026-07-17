@@ -15,18 +15,20 @@
 package controllers
 
 import (
+	"context"
 	"strings"
 
 	"github.com/casdoor/casdoor/scim"
 )
 
 func (c *RootController) HandleScim() {
-	_, ok := c.RequireAdmin()
+	organization, ok := c.RequireAdmin()
 	if !ok {
 		return
 	}
 
 	path := c.Ctx.Request.URL.Path
 	c.Ctx.Request.URL.Path = strings.TrimPrefix(path, "/scim")
+	c.Ctx.Request = c.Ctx.Request.WithContext(context.WithValue(c.Ctx.Request.Context(), scim.OrganizationContextKey, organization))
 	scim.Server.ServeHTTP(c.Ctx.ResponseWriter, c.Ctx.Request)
 }

@@ -34,6 +34,9 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 		if reqInfo.Name == "" {
 			return nil, fmt.Errorf("product name cannot be empty")
 		}
+		if reqInfo.Quantity <= 0 {
+			return nil, fmt.Errorf("product quantity should be greater than zero")
+		}
 		productNames = append(productNames, reqInfo.Name)
 	}
 
@@ -183,6 +186,11 @@ func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) 
 	notifyUrl := fmt.Sprintf("%s/api/notify-payment/%s/%s", originBackend, owner, paymentName)
 
 	orderProductInfos := order.ProductInfos
+	for _, productInfo := range orderProductInfos {
+		if productInfo.Quantity <= 0 {
+			return nil, nil, fmt.Errorf("product quantity should be greater than zero")
+		}
+	}
 	// Create a subscription when pricing and plan are provided
 	// This allows both free users and paid users to subscribe to plans
 	for i, productInfo := range orderProductInfos {

@@ -137,6 +137,9 @@ func (c *ApiController) GetProvider() {
 		c.ResponseError(err.Error())
 		return
 	}
+	if !isMaskEnabled && !c.requireProviderPermission(provider) {
+		return
+	}
 
 	c.ResponseOk(object.GetMaskedProvider(provider, isMaskEnabled))
 }

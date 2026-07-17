@@ -321,7 +321,7 @@ func (c *ApiController) SendVerificationCode() {
 			}
 
 			if user == nil {
-				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				c.ResponseOk()
 				return
 			}
 		} else if vform.Method == ResetVerification {
@@ -339,10 +339,18 @@ func (c *ApiController) SendVerificationCode() {
 
 		provider, err = application.GetEmailProvider(vform.Method)
 		if err != nil {
+			if vform.Method == LoginVerification || vform.Method == ForgetVerification {
+				c.ResponseOk()
+				return
+			}
 			c.ResponseError(err.Error())
 			return
 		}
 		if provider == nil {
+			if vform.Method == LoginVerification || vform.Method == ForgetVerification {
+				c.ResponseOk()
+				return
+			}
 			c.ResponseError(fmt.Sprintf(c.T("verification:please add an Email provider to the \"Providers\" list for the application: %s"), application.Name))
 			return
 		}
@@ -358,7 +366,7 @@ func (c *ApiController) SendVerificationCode() {
 				c.ResponseError(err.Error())
 				return
 			} else if user == nil {
-				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				c.ResponseOk()
 				return
 			}
 
@@ -385,10 +393,18 @@ func (c *ApiController) SendVerificationCode() {
 
 		provider, err = application.GetSmsProvider(vform.Method, vform.CountryCode)
 		if err != nil {
+			if vform.Method == LoginVerification || vform.Method == ForgetVerification {
+				c.ResponseOk()
+				return
+			}
 			c.ResponseError(err.Error())
 			return
 		}
 		if provider == nil {
+			if vform.Method == LoginVerification || vform.Method == ForgetVerification {
+				c.ResponseOk()
+				return
+			}
 			c.ResponseError(fmt.Sprintf(c.T("verification:please add a SMS provider to the \"Providers\" list for the application: %s"), application.Name))
 			return
 		}
@@ -401,7 +417,9 @@ func (c *ApiController) SendVerificationCode() {
 		}
 	}
 
-	if sendResp != nil {
+	if sendResp != nil && (vform.Method == LoginVerification || vform.Method == ForgetVerification) {
+		c.ResponseOk()
+	} else if sendResp != nil {
 		c.ResponseError(sendResp.Error())
 	} else {
 		c.ResponseOk()

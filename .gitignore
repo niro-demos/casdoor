@@ -39,3 +39,7 @@ server
 
 web/cypress/videos/
 web/cypress/screenshots/
+niro/credentials.yaml
+niro/fixtures.yaml
+niro/findings/
+niro/harness/run/

@@ -1,0 +1,32 @@
+# accepted-behaviors.yaml — a risk-acceptance register.
+#
+# Every entry is a behavior treated as ACCEPTED: as long as an entry exists, the
+# tool considers that behavior intended and does not re-report it. To stop
+# accepting one, delete it — the finding comes back. Version control records who
+# changed what, and when.
+#
+#   consequence:  [tool] the precise risk, in plain terms a non-expert can
+#                 evaluate — what could actually happen. (max 1000 runes)
+#   evidence:     [tool] proof it looks intentional — comment / test / flag /
+#                 code, by file:line.
+#   reason:       [human] your team's rationale for accepting this — your own
+#                 documentation. The tool never writes it, and an entry is
+#                 accepted by being here, not by this field. But fill it in: an
+#                 undocumented acceptance no one can explain later is how real
+#                 risk quietly gets forgotten.
+#
+# Be specific enough to adjudicate in seconds. Vague entries hide real bugs.
+#
+# This file accumulates across runs and is APPEND-ONLY. Anyone updating it — tool
+# or human — must read it first, keep every existing entry (especially the human
+# `reason`), and only append; never rewrite, reorder, or drop entries. Presence
+# is the suppression signal, so a clobbered entry silently un-accepts a finding.
+# COMMIT it to git — that is your history, your review trail, and your undo.
+
+accepted_behaviors:
+  - consequence: "Unauthenticated visitors can confirm which usernames belong to accounts through the public signup response."
+    evidence: "object/check.go:60 returns 'Username already exists' during signup validation, and web/src/auth/SignupPage.js:430 displays the signup API message to the user."
+  - consequence: "Anyone who learns a pending Dummy-provider payment identifier can mark that order paid without a real provider charge."
+    evidence: "pp/dummy.go:36 says Dummy is a test/mock provider used internally for testing, and pp/dummy.go:55 returns Paid from Notify without validating the request body."
+  - consequence: "Unauthenticated visitors can determine whether a username exists through the masked email/phone account-recovery lookup."
+    evidence: "controllers/user.go:461 returns masked contact details for an existing user, web/src/auth/AuthBackend.js:40 exposes getEmailAndPhone(), and web/src/auth/ForgetPage.js:90 calls it to drive the forgot-password flow."

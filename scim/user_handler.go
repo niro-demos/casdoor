@@ -25,23 +25,52 @@ import (
 
 type UserResourceHandler struct{}
 
+type organizationContextKey struct{}
+
+var OrganizationContextKey organizationContextKey
+
+func getRequestOrganization(r *http.Request) string {
+	organization, _ := r.Context().Value(OrganizationContextKey).(string)
+	return organization
+}
+
+func ensureUserInRequestOrganization(r *http.Request, user *object.User, id string) error {
+	if user == nil {
+		return errors.ScimErrorResourceNotFound(id)
+	}
+	if organization := getRequestOrganization(r); organization != "" && user.Owner != organization {
+		return errors.ScimErrorResourceNotFound(id)
+	}
+	return nil
+}
+
 // https://github.com/elimity-com/scim/blob/master/resource_handler_test.go Example in-memory resource handler
 // https://datatracker.ietf.org/doc/html/rfc7644#section-3.4 How to query/update resources
 
 func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
 	resource := &scim.Resource{Attributes: attrs}
+	if organization := getRequestOrganization(r); organization != "" {
+		user, err := resource2user(resource.Attributes)
+		if err != nil {
+			return scim.Resource{}, err
+		}
+		if user.Owner != organization {
+			return scim.Resource{}, errors.ScimErrorResourceNotFound(user.GetId())
+		}
+	}
 	err := AddScimUser(resource)
 	return *resource, err
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := GetScimUser(id)
+	user, err := object.GetUserByUserIdOnly(id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if resource == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+	if err = ensureUserInRequestOrganization(r, user, id); err != nil {
+		return scim.Resource{}, err
 	}
+	resource := user2resource(user)
 	return *resource, nil
 }
 
@@ -50,16 +79,23 @@ func (h UserResourceHandler) Delete(r *http.Request, id string) error {
 	if err != nil {
 		return err
 	}
-	if user == nil {
-		return errors.ScimErrorResourceNotFound(id)
+	if err = ensureUserInRequestOrganization(r, user, id); err != nil {
+		return err
 	}
 	_, err = object.DeleteUser(user)
 	return err
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	organization := getRequestOrganization(r)
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		var count int64
+		var err error
+		if organization == "" {
+			count, err = object.GetGlobalUserCount("", "")
+		} else {
+			count, err = object.GetUserCount(organization, "", "", "")
+		}
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -68,7 +104,13 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 
 	resources := make([]scim.Resource, 0)
 	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	var users []*object.User
+	var err error
+	if organization == "" {
+		users, err = object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	} else {
+		users, err = object.GetPaginationUsers(organization, params.StartIndex-1, params.Count, "", "", "", "", "")
+	}
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -86,8 +128,8 @@ func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+	if err = ensureUserInRequestOrganization(r, user, id); err != nil {
+		return scim.Resource{}, err
 	}
 	return UpdateScimUserByPatchOperation(id, operations)
 }
@@ -97,10 +139,19 @@ func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.Reso
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+	if err = ensureUserInRequestOrganization(r, user, id); err != nil {
+		return scim.Resource{}, err
 	}
 	resource := &scim.Resource{Attributes: attrs}
+	if organization := getRequestOrganization(r); organization != "" {
+		newUser, err := resource2user(resource.Attributes)
+		if err != nil {
+			return scim.Resource{}, err
+		}
+		if newUser.Owner != organization {
+			return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+		}
+	}
 	err = UpdateScimUser(id, resource)
 	return *resource, err
 }

@@ -53,13 +53,19 @@ func (c *ApiController) GetResources() {
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 
-	isOrgAdmin, ok := c.IsOrgAdmin()
+	requestUser, ok := c.RequireSignedInUser()
 	if !ok {
 		return
 	}
 
-	if isOrgAdmin {
+	if requestUser.IsGlobalAdmin() {
 		user = ""
+	} else if requestUser.IsAdmin {
+		owner = requestUser.Owner
+		user = ""
+	} else {
+		owner = requestUser.Owner
+		user = requestUser.Name
 	}
 
 	if sortField == "Direct" {
@@ -238,6 +244,22 @@ func (c *ApiController) UploadResource() {
 
 	if username == "" || fullFilePath == "" {
 		c.ResponseError(fmt.Sprintf(c.T("resource:Username or fullFilePath is empty: username = %s, fullFilePath = %s"), username, fullFilePath))
+		return
+	}
+
+	requestUser, ok := c.RequireSignedInUser()
+	if !ok {
+		return
+	}
+	if requestUser.IsGlobalAdmin() {
+		// Global admins can upload resources for any user.
+	} else if requestUser.IsAdmin {
+		if owner != requestUser.Owner {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	} else if owner != requestUser.Owner || username != requestUser.Name {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return
 	}
 
