@@ -291,11 +291,53 @@ func ExtendProductWithProviders(product *Product) error {
 
 	for _, providerItem := range product.Providers {
 		if provider, ok := m[providerItem]; ok {
-			product.ProviderObjs = append(product.ProviderObjs, provider)
+			product.ProviderObjs = append(product.ProviderObjs, sanitizeProviderForPublicProduct(provider))
 		}
 	}
 
 	return nil
+}
+
+// sanitizeProviderForPublicProduct redacts the payment-provider credential
+// fields that GetMaskedProvider (called earlier by getProviderMap) does not
+// cover. GET /api/get-product is deliberately reachable by anonymous,
+// unauthenticated callers (authz/authz.go whitelists it for "*" so products
+// stay browsable pre-login), so the *Provider objects it serializes via
+// product.ProviderObjs must never carry raw credential material.
+//
+// getProviderMap already replaces ClientSecret/ClientSecret2 with "***", but
+// leaves Cert (PEM certificate/private-key material), ClientId, ClientId2
+// and AppId untouched — a public storefront only needs a provider's
+// name/type/displayName/category to render a payment option (see
+// web/src/OrderPayPage.js), and the actual payment flow (PayOrder ->
+// Product.getProvider) re-fetches the provider directly rather than reusing
+// product.ProviderObjs, so redacting these fields here does not affect
+// checkout.
+//
+// This intentionally does not touch GetMaskedProvider itself: that function
+// is also used to expand an Application's sign-in providers
+// (extendApplicationWithProviders), where ClientId is the public OAuth
+// client_id the frontend needs to build the authorize URL (see
+// web/src/auth/Provider.js) and must stay visible.
+func sanitizeProviderForPublicProduct(provider *Provider) *Provider {
+	if provider == nil {
+		return nil
+	}
+
+	if provider.Cert != "" {
+		provider.Cert = "***"
+	}
+	if provider.ClientId != "" {
+		provider.ClientId = "***"
+	}
+	if provider.ClientId2 != "" {
+		provider.ClientId2 = "***"
+	}
+	if provider.AppId != "" {
+		provider.AppId = "***"
+	}
+
+	return provider
 }
 
 func CreateProductForPlan(plan *Plan) *Product {
