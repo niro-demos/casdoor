@@ -390,6 +390,75 @@ func GetOAuthCode(userId string, clientId string, provider string, signinMethod 
 	}, nil
 }
 
+// validateRefreshTokenClient enforces that a refresh_token grant is redeemed
+// by the same client application the token was originally issued to, and
+// that the client authenticates as itself (RFC 6749 §6). Without this check,
+// a refresh token could be replayed against a client_id it was never issued
+// to, minting a fresh access token for the victim user with no client
+// authentication at all.
+//
+// A client that presents the correct client_secret always passes. A client
+// with no secret (or the wrong one) is only allowed through when the token
+// being refreshed originated from a PKCE code exchange (token.CodeChallenge
+// is set) -- the same public-client allowance already made for the
+// authorization_code grant in GetAuthorizationCodeToken, where the PKCE
+// verifier stands in for a client secret.
+func validateRefreshTokenClient(application *Application, token *Token, clientSecret string) *TokenError {
+	if application.Name != token.Application {
+		return &TokenError{
+			Error:            InvalidGrant,
+			ErrorDescription: fmt.Sprintf("the token is for wrong application (client_id), application.Name: [%s], token.Application: [%s]", application.Name, token.Application),
+		}
+	}
+
+	if application.ClientSecret != clientSecret {
+		if token.CodeChallenge == "" || clientSecret != "" {
+			return &TokenError{
+				Error:            InvalidClient,
+				ErrorDescription: "client_secret is invalid",
+			}
+		}
+		// Public/PKCE client redeeming a token issued via PKCE: no secret
+		// required, matching the authorization_code grant's PKCE allowance.
+	}
+
+	return nil
+}
+
+// validateRefreshTokenScope resolves the scope to grant on a refreshed
+// access token. Per RFC 6749 §6, a refresh_token grant must never widen
+// access beyond what the user originally consented to at authorization
+// time: the requested scope defaults to, and must never exceed, the scope
+// already present on the token being refreshed.
+func validateRefreshTokenScope(scope string, oldTokenScope string, application *Application) (string, *TokenError) {
+	if scope == "" {
+		return oldTokenScope, nil
+	}
+
+	expandedScope, ok := IsScopeValidAndExpand(scope, application)
+	if !ok {
+		return "", &TokenError{
+			Error:            InvalidScope,
+			ErrorDescription: "the requested scope is invalid or not defined in the application",
+		}
+	}
+
+	grantedScopes := make(map[string]bool)
+	for _, s := range strings.Fields(oldTokenScope) {
+		grantedScopes[s] = true
+	}
+	for _, s := range strings.Fields(expandedScope) {
+		if !grantedScopes[s] {
+			return "", &TokenError{
+				Error:            InvalidScope,
+				ErrorDescription: fmt.Sprintf("the requested scope %q was not part of the scope originally granted to this refresh token", s),
+			}
+		}
+	}
+
+	return expandedScope, nil
+}
+
 func RefreshToken(application *Application, grantType string, refreshToken string, scope string, clientId string, clientSecret string, host string, dpopProof string) (interface{}, error) {
 	if grantType != "refresh_token" {
 		return &TokenError{
@@ -413,13 +482,6 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		}
 	}
 
-	if clientSecret != "" && application.ClientSecret != clientSecret {
-		return &TokenError{
-			Error:            InvalidClient,
-			ErrorDescription: "client_secret is invalid",
-		}, nil
-	}
-
 	// check whether the refresh token is valid, and has not expired.
 	token, err := GetTokenByRefreshToken(refreshToken)
 	if err != nil || token == nil {
@@ -427,6 +489,15 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 			Error:            InvalidGrant,
 			ErrorDescription: "refresh token is invalid or revoked",
 		}, nil
+	}
+
+	// A refresh token may only be redeemed by the same client application it
+	// was issued to, and that client must authenticate -- otherwise a refresh
+	// token issued to (or leaked from) one app could be replayed against any
+	// other app to mint a fresh, fully-usable access token for the victim
+	// user with no client authentication at all (RFC 6749 §6).
+	if tokenError := validateRefreshTokenClient(application, token, clientSecret); tokenError != nil {
+		return tokenError, nil
 	}
 
 	// check if the token has been invalidated (e.g., by SSO logout)
@@ -469,8 +540,9 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		oldTokenScope = oldToken.Scope
 	}
 
-	if scope == "" {
-		scope = oldTokenScope
+	scope, tokenError := validateRefreshTokenScope(scope, oldTokenScope, application)
+	if tokenError != nil {
+		return tokenError, nil
 	}
 
 	// generate a new token
@@ -515,6 +587,12 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		ExpiresIn:    int(application.ExpireInHours * float64(hourSeconds)),
 		Scope:        scope,
 		TokenType:    "Bearer",
+		// Carry the PKCE marker forward so a chain of refreshes on a public
+		// client's token keeps being recognized as one (see
+		// validateRefreshTokenClient), instead of losing it after the first
+		// refresh and then being wrongly forced to authenticate with a secret
+		// it was never issued.
+		CodeChallenge: token.CodeChallenge,
 	}
 	_, err = AddToken(newToken)
 	if err != nil {
