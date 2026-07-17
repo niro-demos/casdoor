@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"net"
 	"strings"
 
 	"github.com/casdoor/casdoor/conf"
@@ -93,11 +94,39 @@ func getTLSconfig(ldapsCertId string) (*tls.Config, error) {
 	}, nil
 }
 
+// isUnprotectedSimpleBind reports whether a `simple` BindRequest carrying a
+// non-empty password is being attempted over a connection that is not
+// TLS-protected. The LDAP StartTLS extended operation isn't wired up as a
+// route on this server (see StartLdapServer), so the only TLS-protected path
+// is the dedicated LDAPS listener (ldapsServerPort/ldapsCertId), whose
+// accepted connections are always *tls.Conn. Per RFC 4513 §3.1.2, a server
+// that keeps a plaintext port open for legacy clients must refuse
+// credentialed simple binds on it rather than validate the password in the
+// clear.
+func isUnprotectedSimpleBind(conn net.Conn, password string) bool {
+	if password == "" {
+		// Anonymous / unauthenticated bind carries no secret to protect.
+		return false
+	}
+	_, isTLS := conn.(*tls.Conn)
+	return !isTLS
+}
+
 func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 	r := m.GetBindRequest()
 	res := ldap.NewBindResponse(ldap.LDAPResultSuccess)
 
 	if r.AuthenticationChoice() == "simple" {
+		bindPassword := string(r.AuthenticationSimple())
+
+		if isUnprotectedSimpleBind(m.Client.GetConn(), bindPassword) {
+			log.Printf("Bind rejected: simple bind with a password over an unencrypted connection from %s", m.Client.Addr())
+			res.SetResultCode(ldap.LDAPResultConfidentialityRequired)
+			res.SetDiagnosticMessage("confidentiality required: simple bind with a password requires a TLS-protected connection (use LDAPS)")
+			w.Write(res)
+			return
+		}
+
 		bindUsername, bindOrg, err := getNameAndOrgFromDN(string(r.Name()))
 		if err != nil {
 			log.Printf("getNameAndOrgFromDN() error: %s", err.Error())
@@ -106,8 +135,6 @@ func handleBind(w ldap.ResponseWriter, m *ldap.Message) {
 			w.Write(res)
 			return
 		}
-
-		bindPassword := string(r.AuthenticationSimple())
 
 		enableCaptcha := false
 		isSigninViaLdap := false
