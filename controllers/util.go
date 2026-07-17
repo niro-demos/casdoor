@@ -170,6 +170,27 @@ func (c *ApiController) IsOrgAdmin() (bool, bool) {
 	return user.IsAdmin, true
 }
 
+// RequireGlobalAdmin requires the caller to be a true global admin (an
+// account whose Owner is "built-in"), rejecting org-scoped admins whose
+// IsAdmin flag is true but whose Owner is a different organization. This is
+// stricter than RequireAdmin, which treats any org-scoped admin as
+// sufficient. Use it for boundaries that must not be crossed by org admins,
+// such as the shared, platform-wide (Owner=="admin") provider pool that
+// requireProviderPermission already protects on the write path.
+func (c *ApiController) RequireGlobalAdmin() bool {
+	_, ok := c.RequireSignedInUser()
+	if !ok {
+		return false
+	}
+
+	if !c.IsGlobalAdmin() {
+		c.ResponseError(c.T("general:this operation requires administrator to perform"))
+		return false
+	}
+
+	return true
+}
+
 // IsMaskedEnabled ...
 func (c *ApiController) IsMaskedEnabled() (bool, bool) {
 	isMaskEnabled := true
@@ -182,8 +203,16 @@ func (c *ApiController) IsMaskedEnabled() (bool, bool) {
 			return false, isMaskEnabled
 		}
 
-		_, ok := c.RequireAdmin()
-		if !ok {
+		// Unmasking provider secrets must be limited to true global admins:
+		// GetProviders/GetPaginationProviders always OR in the shared,
+		// platform-wide provider pool (Owner=="admin") alongside the
+		// requested org's own providers, so an org-scoped admin (IsAdmin
+		// but Owner != "built-in") who merely passed RequireAdmin() would
+		// also receive that shared pool's real secrets. This mirrors the
+		// isGlobalAdmin() check controllers/provider.go
+		// requireProviderPermission() already uses for the same
+		// Owner=="admin" boundary on the write path.
+		if !c.RequireGlobalAdmin() {
 			return false, isMaskEnabled
 		}
 	}
@@ -203,6 +232,25 @@ func refineFullFilePath(fullFilePath string) (string, string) {
 }
 
 func (c *ApiController) GetProviderFromContext(category string) (*object.Provider, error) {
+	// The caller must be signed in before any provider is resolved and
+	// returned, regardless of which branch below resolves it. This check
+	// used to sit only in the "no provider name given" branch, so a caller
+	// who supplied a `provider` query param (or a `Direct/<provider>/...`
+	// fullFilePath, or field=provider&value=...) could reach
+	// object.GetProvider(...) and get a live provider back without ever
+	// being authenticated.
+	//
+	// This intentionally checks the session directly instead of calling
+	// c.RequireSignedIn() (which also writes the error response itself):
+	// every caller of GetProviderFromContext already writes its own
+	// response from the returned error, so also writing one here would
+	// send two response bodies on the same request for any caller that
+	// hits this branch unauthenticated.
+	userId := c.GetSessionUsername()
+	if userId == "" {
+		return nil, errors.New(c.T("general:Please login first"))
+	}
+
 	providerName := c.Ctx.Input.Query("provider")
 	if providerName == "" {
 		field := c.Ctx.Input.Query("field")
@@ -227,11 +275,6 @@ func (c *ApiController) GetProviderFromContext(category string) (*object.Provide
 		}
 
 		return provider, nil
-	}
-
-	userId, ok := c.RequireSignedIn()
-	if !ok {
-		return nil, errors.New(c.T("general:Please login first"))
 	}
 
 	application, err := object.GetApplicationByUserId(userId)

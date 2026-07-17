@@ -253,6 +253,32 @@ func (c *ApiController) UploadResource() {
 		c.ResponseError(err.Error())
 		return
 	}
+
+	// GetProviderFromContext only proves the caller is signed in, not that
+	// they own the target the upload will overwrite: owner/user come
+	// straight from the query string, and object.UpdateUser (below, for the
+	// avatar/idCard tags) applies them with no ownership comparison of its
+	// own. "Built-in-Untracked" is a sentinel that never resolves to a real
+	// user row, so it has nothing to own-check. For every other case,
+	// require the caller to be an admin or the target user themselves,
+	// mirroring the IsAdminOrSelf check other user-scoped endpoints
+	// (e.g. GetUser) already use.
+	if username != "Built-in-Untracked" {
+		targetUser, err := object.GetUserNoCheck(util.GetId(owner, username))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if targetUser == nil {
+			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(owner, username)))
+			return
+		}
+		if !c.IsAdminOrSelf(targetUser) {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	}
+
 	_, fullFilePath = refineFullFilePath(fullFilePath)
 
 	fileType := "unknown"
