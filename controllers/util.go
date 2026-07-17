@@ -146,6 +146,24 @@ func (c *ApiController) RequireAdmin() (string, bool) {
 	return user.Owner, true
 }
 
+func isGlobalAdminUser(user *object.User) bool {
+	return user != nil && user.IsGlobalAdmin()
+}
+
+func (c *ApiController) RequireGlobalAdmin() bool {
+	user, ok := c.RequireSignedInUser()
+	if !ok {
+		return false
+	}
+
+	if !isGlobalAdminUser(user) {
+		c.ResponseError(c.T("general:this operation requires administrator to perform"))
+		return false
+	}
+
+	return true
+}
+
 func (c *ApiController) IsOrgAdmin() (bool, bool) {
 	userId, ok := c.RequireSignedIn()
 	if !ok {

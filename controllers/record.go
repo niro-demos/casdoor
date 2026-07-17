@@ -22,6 +22,19 @@ import (
 	"github.com/casdoor/casdoor/util"
 )
 
+type recordQueries struct {
+	getAll     func() ([]*object.Record, error)
+	getByField func(*object.Record) ([]*object.Record, error)
+}
+
+func getUnpaginatedRecordsForAdmin(isGlobalAdmin bool, organization string, queries recordQueries) ([]*object.Record, error) {
+	if isGlobalAdmin {
+		return queries.getAll()
+	}
+
+	return queries.getByField(&object.Record{Organization: organization})
+}
+
 // GetRecords
 // @Title GetRecords
 // @Tag Record API
@@ -45,7 +58,10 @@ func (c *ApiController) GetRecords() {
 	organizationName := c.Ctx.Input.Query("organizationName")
 
 	if limit == "" || page == "" {
-		records, err := object.GetRecords()
+		records, err := getUnpaginatedRecordsForAdmin(c.IsGlobalAdmin(), organization, recordQueries{
+			getAll:     object.GetRecords,
+			getByField: object.GetRecordsByField,
+		})
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
