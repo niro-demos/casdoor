@@ -306,6 +306,44 @@ func (c *ApiController) BatchEnforce() {
 	c.ResponseOk(res, keyRes)
 }
 
+// resolveCasbinApiUserId resolves the effective userId for the Casbin-API
+// style lookup endpoints (GetAllObjects/GetAllActions/GetAllRoles).
+//
+// These endpoints carry a blanket subject-wildcard authz policy (same as
+// e.g. /api/get-account) so that any authenticated caller can reach them for
+// self-lookup; they must enforce the actual ownership check themselves. A
+// caller may only look up their own grants unless they are a global/org
+// admin. sessionUserId being empty means the caller has no session at all
+// (including a fully anonymous request, which the wildcard authz policy
+// would otherwise let straight through), so that is always rejected
+// regardless of which userId was requested.
+func resolveCasbinApiUserId(sessionUserId string, queryUserId string, isAdmin bool) (userId string, authorized bool) {
+	if sessionUserId == "" {
+		return "", false
+	}
+	if queryUserId == "" {
+		return sessionUserId, true
+	}
+	if queryUserId != sessionUserId && !isAdmin {
+		return "", false
+	}
+	return queryUserId, true
+}
+
+func (c *ApiController) checkCasbinApiUserId() (string, bool) {
+	sessionUserId := c.GetSessionUsername()
+	userId, authorized := resolveCasbinApiUserId(sessionUserId, c.Ctx.Input.Query("userId"), c.IsAdmin())
+	if !authorized {
+		if sessionUserId == "" {
+			c.ResponseError(c.T("general:Please login first"))
+		} else {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+		}
+		return "", false
+	}
+	return userId, true
+}
+
 // GetAllObjects
 // @Title GetAllObjects
 // @Tag Enforcer API
@@ -314,13 +352,9 @@ func (c *ApiController) BatchEnforce() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-objects [get]
 func (c *ApiController) GetAllObjects() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.checkCasbinApiUserId()
+	if !ok {
+		return
 	}
 
 	objects, err := object.GetAllObjects(userId)
@@ -340,13 +374,9 @@ func (c *ApiController) GetAllObjects() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-actions [get]
 func (c *ApiController) GetAllActions() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.checkCasbinApiUserId()
+	if !ok {
+		return
 	}
 
 	actions, err := object.GetAllActions(userId)
@@ -366,13 +396,9 @@ func (c *ApiController) GetAllActions() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-roles [get]
 func (c *ApiController) GetAllRoles() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.checkCasbinApiUserId()
+	if !ok {
+		return
 	}
 
 	roles, err := object.GetAllRoles(userId)
