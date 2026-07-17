@@ -14,15 +14,33 @@
 
 package xlsx
 
-import "github.com/tealeg/xlsx"
+import (
+	"fmt"
 
-func ReadXlsxFile(path string) [][]string {
+	"github.com/tealeg/xlsx"
+)
+
+// ReadXlsxFile parses the xlsx file at path into a slice of string rows. It
+// never panics: a malformed or non-zip file (e.g. a plain CSV renamed to
+// .xlsx) is reported as a normal error so HTTP handlers can return a clean
+// 4xx/5xx response instead of letting a panic reach the framework's default
+// (potentially debug-mode) error handler. The recover also guards against
+// any other panic surfaced by the third-party xlsx library while reading
+// sheets/rows/cells.
+func ReadXlsxFile(path string) (res [][]string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res = nil
+			err = fmt.Errorf("invalid xlsx file: %v", r)
+		}
+	}()
+
 	file, err := xlsx.OpenFile(path)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("invalid xlsx file: %w", err)
 	}
 
-	res := [][]string{}
+	res = [][]string{}
 	for _, sheet := range file.Sheets {
 		for _, row := range sheet.Rows {
 			line := []string{}
@@ -35,5 +53,5 @@ func ReadXlsxFile(path string) [][]string {
 		break
 	}
 
-	return res
+	return res, nil
 }

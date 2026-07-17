@@ -76,7 +76,10 @@ func parseListItem(lines *[]string, i int) []string {
 }
 
 func UploadUsers(owner string, path string, userObj *User, lang string) (bool, error) {
-	table := xlsx.ReadXlsxFile(path)
+	table, err := xlsx.ReadXlsxFile(path)
+	if err != nil {
+		return false, err
+	}
 
 	if len(table) == 0 {
 		return false, fmt.Errorf("empty table")
