@@ -120,7 +120,6 @@ p, *, *, GET, /api/get-prometheus-info, *, *
 p, *, *, *, /api/metrics, *, *
 p, *, *, GET, /api/get-pricing, *, *
 p, *, *, GET, /api/get-plan, *, *
-p, *, *, GET, /api/get-subscription, *, *
 p, *, *, GET, /api/get-transactions, *, *
 p, *, *, GET, /api/get-transaction, *, *
 p, *, *, GET, /api/get-provider, *, *

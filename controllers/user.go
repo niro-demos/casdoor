@@ -144,6 +144,12 @@ func (c *ApiController) GetUsers() {
 // @Success 200 {object} object.User The Response object
 // @router /get-user [get]
 func (c *ApiController) GetUser() {
+	requestUserId := c.GetSessionUsername()
+	if requestUserId == "" {
+		c.ResponseError(c.T("general:Please login first"))
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 	email := c.Ctx.Input.Query("email")
 	phone := c.Ctx.Input.Query("phone")
@@ -209,14 +215,11 @@ func (c *ApiController) GetUser() {
 			return
 		}
 
-		if !organization.IsProfilePublic {
-			requestUserId := c.GetSessionUsername()
-			var hasPermission bool
-			hasPermission, err = object.CheckUserPermission(requestUserId, user.GetId(), true, c.GetAcceptLanguage())
-			if !hasPermission {
-				c.ResponseError(err.Error())
-				return
-			}
+		var hasPermission bool
+		hasPermission, err = object.CheckUserPermission(requestUserId, user.GetId(), true, c.GetAcceptLanguage())
+		if !hasPermission {
+			c.ResponseError(err.Error())
+			return
 		}
 	}
 
@@ -230,7 +233,6 @@ func (c *ApiController) GetUser() {
 		return
 	}
 
-	requestUserId := c.GetSessionUsername()
 	isApplicationRequest := object.IsAppUser(requestUserId)
 	isAdmin := c.IsAdmin() || isApplicationRequest
 	isAdminOrSelf := c.IsAdminOrSelf(user) || isApplicationRequest

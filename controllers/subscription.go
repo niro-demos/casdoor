@@ -103,12 +103,26 @@ func (c *ApiController) GetSubscriptions() {
 // @Success 200 {object} object.Subscription The Response object
 // @router /get-subscription [get]
 func (c *ApiController) GetSubscription() {
+	requestUserId := c.GetSessionUsername()
+	if requestUserId == "" {
+		c.ResponseError(c.T("general:Please login first"))
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	subscription, err := object.GetSubscription(id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
+	}
+
+	if subscription != nil && !c.IsAdmin() {
+		hasPermission, err := object.CheckUserPermission(requestUserId, util.GetId(subscription.Owner, subscription.User), true, c.GetAcceptLanguage())
+		if !hasPermission {
+			c.ResponseError(err.Error())
+			return
+		}
 	}
 
 	c.ResponseOk(subscription)
