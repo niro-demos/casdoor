@@ -114,7 +114,13 @@ func (c *ApiController) UpdateEnforcer() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdateEnforcer(id, &enforcer))
+	if enforcer.Owner == "" {
+		if owner, _, err := util.GetOwnerAndNameFromIdWithError(id); err == nil {
+			enforcer.Owner = owner
+		}
+	}
+
+	c.Data["json"] = wrapActionResponse(object.UpdateEnforcer(id, &enforcer, c.IsGlobalAdmin()))
 	c.ServeJSON()
 }
 
@@ -133,7 +139,7 @@ func (c *ApiController) AddEnforcer() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.AddEnforcer(&enforcer))
+	c.Data["json"] = wrapActionResponse(object.AddEnforcer(&enforcer, c.IsGlobalAdmin()))
 	c.ServeJSON()
 }
 

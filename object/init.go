@@ -556,7 +556,7 @@ func initBuiltInUserEnforcer() {
 		Adapter:     "built-in/user-adapter-built-in",
 	}
 
-	_, err = AddEnforcer(enforcer)
+	_, err = AddEnforcer(enforcer, true)
 	if err != nil {
 		panic(err)
 	}
@@ -581,7 +581,7 @@ func initBuiltInApiEnforcer() {
 		Adapter:     "built-in/api-adapter-built-in",
 	}
 
-	_, err = AddEnforcer(enforcer)
+	_, err = AddEnforcer(enforcer, true)
 	if err != nil {
 		panic(err)
 	}

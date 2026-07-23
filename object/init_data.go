@@ -733,7 +733,7 @@ func initDefinedEnforcer(enforcer *Enforcer, policies [][]string) {
 		}
 	}
 	enforcer.CreatedTime = util.GetCurrentTime()
-	_, err = AddEnforcer(enforcer)
+	_, err = AddEnforcer(enforcer, true)
 	if err != nil {
 		panic(err)
 	}

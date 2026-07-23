@@ -91,9 +91,12 @@ func GetEnforcer(id string) (*Enforcer, error) {
 	return getEnforcer(owner, name)
 }
 
-func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
+func UpdateEnforcer(id string, enforcer *Enforcer, isGlobalAdmin bool) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
+		return false, err
+	}
+	if err := CheckEnforcerModelAdapterOwnership(enforcer, isGlobalAdmin); err != nil {
 		return false, err
 	}
 	if oldEnforcer, err := getEnforcer(owner, name); err != nil {
@@ -110,7 +113,51 @@ func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
 	return affected != 0, nil
 }
 
-func AddEnforcer(enforcer *Enforcer) (bool, error) {
+// CheckEnforcerModelAdapterOwnership enforces that an enforcer only references a
+// model and adapter owned by the same organization as the enforcer itself.
+//
+// An org-scoped admin who could point an org-owned enforcer at another org's (in
+// particular the platform "built-in") model/adapter would gain a fully functional
+// handle onto that other org's authorization policy table via
+// GetPolicies/AddPolicy/RemovePolicy — a cross-tenant read/write of the site-wide
+// ACL. Only a verified global admin, who legitimately manages the platform-shared
+// built-in objects, may cross the organization boundary here.
+func CheckEnforcerModelAdapterOwnership(enforcer *Enforcer, isGlobalAdmin bool) error {
+	// A verified global admin legitimately manages the platform-shared built-in
+	// model/adapter, so they are exempt from the same-org restriction.
+	if isGlobalAdmin {
+		return nil
+	}
+
+	for _, ref := range []struct {
+		kind string
+		id   string
+	}{
+		{"model", enforcer.Model},
+		{"adapter", enforcer.Adapter},
+	} {
+		if ref.id == "" {
+			continue
+		}
+
+		refOwner, _, err := util.GetOwnerAndNameFromIdWithError(ref.id)
+		if err != nil {
+			return err
+		}
+
+		if refOwner != enforcer.Owner {
+			return fmt.Errorf("the %s: %s must belong to the same organization as the enforcer: %s", ref.kind, ref.id, enforcer.Owner)
+		}
+	}
+
+	return nil
+}
+
+func AddEnforcer(enforcer *Enforcer, isGlobalAdmin bool) (bool, error) {
+	if err := CheckEnforcerModelAdapterOwnership(enforcer, isGlobalAdmin); err != nil {
+		return false, err
+	}
+
 	affected, err := ormer.Engine.Insert(enforcer)
 	if err != nil {
 		return false, err
