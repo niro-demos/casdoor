@@ -15,6 +15,8 @@
 package object
 
 import (
+	"fmt"
+
 	"github.com/casdoor/casdoor/util"
 )
 
@@ -109,6 +111,25 @@ func GetLdap(id string) (*Ldap, error) {
 	}
 }
 
+// GetLdapByOwner resolves an LDAP record by its global UUID and then enforces
+// that the record belongs to the caller-asserted owner (organization). The
+// owner in the `<owner>/<uuid>` id is client-controlled, while the row is looked
+// up by UUID alone, so callers that trust the parsed owner MUST route through
+// this function to avoid returning another organization's record (see the
+// tenant-scoped pattern in GetWebhookByOrganization).
+func GetLdapByOwner(owner string, id string) (*Ldap, error) {
+	ldap, err := GetLdap(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if ldap == nil || ldap.Owner != owner {
+		return nil, nil
+	}
+
+	return ldap, nil
+}
+
 func GetMaskedLdap(ldap *Ldap, errs ...error) (*Ldap, error) {
 	if len(errs) > 0 && errs[0] != nil {
 		return nil, errs[0]
@@ -149,11 +170,20 @@ func UpdateLdap(ldap *Ldap) (bool, error) {
 		return false, nil
 	}
 
+	// The stored record is keyed by a global UUID, so an update that names another
+	// organization's UUID must not be able to retarget or re-own it. Reject unless
+	// the caller-asserted owner matches the record's real owner, and never allow
+	// the owner column itself to be reassigned.
+	if l.Owner != ldap.Owner {
+		return false, fmt.Errorf("the LDAP server's owner does not match, expected: %s, got: %s", l.Owner, ldap.Owner)
+	}
+	ldap.Owner = l.Owner
+
 	if ldap.Password == "***" {
 		ldap.Password = l.Password
 	}
 
-	affected, err := ormer.Engine.ID(ldap.Id).Cols("owner", "server_name", "host",
+	affected, err := ormer.Engine.ID(ldap.Id).Where("owner = ?", l.Owner).Cols("server_name", "host",
 		"port", "enable_ssl", "username", "password", "base_dn", "filter", "filter_fields", "auto_sync", "default_group", "default_groups", "password_type", "allow_self_signed_cert", "custom_attributes", "enable_groups").Update(ldap)
 	if err != nil {
 		return false, nil
@@ -163,7 +193,10 @@ func UpdateLdap(ldap *Ldap) (bool, error) {
 }
 
 func DeleteLdap(ldap *Ldap) (bool, error) {
-	affected, err := ormer.Engine.ID(ldap.Id).Delete(&Ldap{})
+	// Scope the delete to the caller-asserted owner so an org admin cannot delete
+	// another organization's LDAP integration by naming its UUID with a spoofed
+	// owner: a mismatched owner matches zero rows.
+	affected, err := ormer.Engine.ID(ldap.Id).Where("owner = ?", ldap.Owner).Delete(&Ldap{})
 	if err != nil {
 		return false, err
 	}

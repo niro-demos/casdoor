@@ -48,12 +48,12 @@ type LdapSyncResp struct {
 func (c *ApiController) GetLdapUsers() {
 	id := c.Ctx.Input.Query("id")
 
-	_, ldapId, err := util.GetOwnerAndNameFromIdWithError(id)
+	owner, ldapId, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
-	ldapServer, err := object.GetLdap(ldapId)
+	ldapServer, err := object.GetLdapByOwner(owner, ldapId)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -134,12 +134,12 @@ func (c *ApiController) GetLdap() {
 		return
 	}
 
-	_, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
-	ldap, err := object.GetLdap(name)
+	ldap, err := object.GetLdapByOwner(owner, name)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -205,7 +205,7 @@ func (c *ApiController) UpdateLdap() {
 		return
 	}
 
-	prevLdap, err := object.GetLdap(ldap.Id)
+	prevLdap, err := object.GetLdapByOwner(ldap.Owner, ldap.Id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -277,6 +277,20 @@ func (c *ApiController) SyncLdapUsers() {
 		c.ResponseError(err.Error())
 		return
 	}
+
+	// Confirm the LDAP record actually belongs to the caller-asserted owner before
+	// syncing, so a spoofed owner prefix cannot drive a sync against another
+	// organization's directory using that org's stored bind credentials.
+	ldapServer, err := object.GetLdapByOwner(owner, ldapId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	if ldapServer == nil {
+		c.ResponseError(fmt.Sprintf(c.T("general:The LDAP: %s does not exist"), ldapId))
+		return
+	}
+
 	var users []object.LdapUser
 	err = json.Unmarshal(c.Ctx.Input.RequestBody, &users)
 	if err != nil {
