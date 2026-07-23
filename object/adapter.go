@@ -164,6 +164,16 @@ func (adapter *Adapter) InitAdapter() error {
 		if driverName == "sqlite3" {
 			driverName = "sqlite"
 		}
+		// Egress guard: for network DB drivers the caller-controlled Host/Port are
+		// handed straight to the driver's dialer. Reject internal / loopback /
+		// private destinations before dialing so the adapter cannot be used as an
+		// outbound port-scan oracle (SSRF). sqlite uses Host as a file path and is
+		// exempt.
+		if driverName != "sqlite" {
+			if err := util.CheckOutboundHost(fmt.Sprintf("%s:%d", adapter.Host, adapter.Port)); err != nil {
+				return fmt.Errorf("invalid adapter host/port: %w", err)
+			}
+		}
 		switch driverName {
 		case "mssql":
 			dataSourceName = fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s", adapter.User,

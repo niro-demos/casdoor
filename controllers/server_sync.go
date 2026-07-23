@@ -32,8 +32,12 @@ import (
 // @Success 200 {object} controllers.Response The Response object
 // @router /sync-intranet-servers [post]
 func (c *ApiController) SyncIntranetServers() {
-	_, ok := c.RequireAdmin()
-	if !ok {
+	// Intranet scanning is a network-reaching primitive that by design targets
+	// internal IP ranges, so an egress allowlist cannot gate it. Restrict it to
+	// global (built-in) admins: an org-scoped admin must not be able to drive
+	// server-side scans of arbitrary internal CIDRs/ports.
+	if !c.IsGlobalAdmin() {
+		c.ResponseError(c.T("general:this operation requires administrator to perform"))
 		return
 	}
 

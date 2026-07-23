@@ -18,8 +18,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -110,4 +112,113 @@ func IsIntranetIp(ip string) bool {
 		parsedIP.IsLoopback() ||
 		parsedIP.IsLinkLocalUnicast() ||
 		parsedIP.IsLinkLocalMulticast()
+}
+
+// ErrDisallowedOutboundDestination is returned by the egress guard when a
+// server-side outbound request would target an internal / non-routable address.
+var ErrDisallowedOutboundDestination = fmt.Errorf("destination resolves to a disallowed internal address")
+
+// IsDisallowedOutboundIP reports whether a server-side outbound request must not
+// be made to the given IP. It rejects loopback, private (RFC1918/RFC4193),
+// link-local (incl. the 169.254.169.254 cloud-metadata address), unspecified,
+// multicast, and other non-globally-routable ranges. It is the single source of
+// truth for every SSRF egress check in the codebase.
+func IsDisallowedOutboundIP(ip net.IP) bool {
+	if ip == nil {
+		// A host we cannot resolve to a concrete IP is treated as disallowed:
+		// fail closed rather than dial an unknown destination.
+		return true
+	}
+
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() ||
+		ip.IsMulticast() ||
+		ip.IsUnspecified() ||
+		!ip.IsGlobalUnicast()
+}
+
+// CheckOutboundHost resolves host (accepting either "host" or "host:port") and
+// returns an error if the host is empty, unresolvable, or resolves to any
+// disallowed internal address. Every resolved IP must be allowed — a host that
+// resolves to a mix of public and internal addresses is rejected, closing the
+// DNS-rebinding gap at check time. Callers should additionally use
+// SafeOutboundDialControl on the http.Client so the address actually dialed is
+// re-validated after resolution.
+func CheckOutboundHost(host string) error {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return fmt.Errorf("outbound destination host is empty")
+	}
+
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+
+	if literal := net.ParseIP(host); literal != nil {
+		if IsDisallowedOutboundIP(literal) {
+			return ErrDisallowedOutboundDestination
+		}
+		return nil
+	}
+
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("could not resolve outbound destination host %q: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("could not resolve outbound destination host %q", host)
+	}
+
+	for _, ip := range ips {
+		if IsDisallowedOutboundIP(ip) {
+			return ErrDisallowedOutboundDestination
+		}
+	}
+
+	return nil
+}
+
+// CheckOutboundURL parses rawURL and applies CheckOutboundHost to its hostname.
+// It is the convenience entry point for sinks that hold a URL string.
+func CheckOutboundURL(rawURL string) error {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return err
+	}
+	return CheckOutboundHost(u.Host)
+}
+
+// SafeOutboundDialControl is a net.Dialer.Control hook that re-validates the
+// concrete address the dialer is about to connect to, after DNS resolution.
+// Wiring it into an http.Client's transport closes the DNS-rebinding window that
+// a pre-resolution hostname check alone leaves open: even if a public-looking
+// hostname resolves to an internal IP at connect time, the connection is
+// refused here before any bytes are exchanged.
+func SafeOutboundDialControl(_ string, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if IsDisallowedOutboundIP(ip) {
+		return ErrDisallowedOutboundDestination
+	}
+	return nil
+}
+
+// NewSafeOutboundTransport returns an *http.Transport whose dialer re-validates
+// every connected address against the egress guard, so clients built from it
+// cannot be steered to internal destinations even via DNS rebinding.
+func NewSafeOutboundTransport() *http.Transport {
+	dialer := &net.Dialer{
+		Timeout: 30 * time.Second,
+		Control: SafeOutboundDialControl,
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = dialer.DialContext
+	return transport
 }

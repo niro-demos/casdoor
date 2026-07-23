@@ -13,6 +13,7 @@ import (
 
 	"github.com/beego/beego/v2/core/logs"
 	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
 )
 
 func getSiteBaseURLs(site *object.Site) []string {
@@ -112,6 +113,12 @@ func normalizeScanBaseURL(rawURL string) (string, string, error) {
 
 	if strings.TrimSpace(u.Host) == "" {
 		return "", "", fmt.Errorf("invalid target URL: host is empty")
+	}
+
+	// Egress guard: a tenant-scoped caller must not be able to point the scan at
+	// the server's own loopback / link-local / private ranges (SSRF).
+	if err := util.CheckOutboundHost(u.Host); err != nil {
+		return "", "", fmt.Errorf("scan target is not allowed: %w", err)
 	}
 
 	baseURL := fmt.Sprintf("%s://%s", scheme, u.Host)

@@ -71,6 +71,14 @@ func (c *ApiController) ProxyServer() {
 		c.McpResponseError(mcpReq.ID, -32600, "server URL scheme is invalid", nil)
 		return
 	}
+	// Egress guard: refuse to reverse-proxy to an internal / loopback / private /
+	// link-local upstream, so a tenant admin cannot repoint a server at internal
+	// services (SSRF). Re-checked on every request (not just at server creation)
+	// so a later DNS/record change cannot bypass it.
+	if err := validateProxyTargetURL(server.Url); err != nil {
+		c.McpResponseError(mcpReq.ID, -32600, "server URL targets a disallowed network range", nil)
+		return
+	}
 
 	if mcpReq.Method == "tools/call" {
 		var params mcpself.McpCallToolParams
@@ -100,6 +108,9 @@ func (c *ApiController) ProxyServer() {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(targetUrl)
+	// Re-validate the connected address on every dial so a DNS rebind cannot
+	// steer the proxy at an internal host after the pre-check above.
+	proxy.Transport = util.NewSafeOutboundTransport()
 	proxy.ErrorHandler = func(writer http.ResponseWriter, request *http.Request, proxyErr error) {
 		c.Ctx.Output.SetStatus(http.StatusBadGateway)
 		c.McpResponseError(mcpReq.ID, -32603, "failed to proxy server request: %s", proxyErr.Error())

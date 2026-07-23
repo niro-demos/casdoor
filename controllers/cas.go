@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
 )
 
 const (
@@ -119,15 +120,18 @@ func (c *RootController) CasP3ProxyValidate() {
 		// that means we are in proxy web flow
 		pgt := object.StoreCasTokenForPgt(serviceResponse.Success, service, userId)
 		pgtiou := serviceResponse.Success.ProxyGrantingTicket
-		// todo: check whether it is https
 		pgtUrlObj, err := url.Parse(pgtUrl)
 		if err != nil {
 			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
 			return
 		}
 
-		if pgtUrlObj.Scheme != "https" {
-			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "callback is not https", format)
+		// Egress guard: the callback must be https and must not resolve to an
+		// internal / loopback / link-local / cloud-metadata address, so a caller
+		// cannot direct the server's outbound verification request at an internal
+		// host (SSRF).
+		if err := validateProxyCallbackURL(pgtUrlObj.String()); err != nil {
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
 			return
 		}
 
@@ -143,7 +147,8 @@ func (c *RootController) CasP3ProxyValidate() {
 			return
 		}
 
-		resp, err := http.DefaultClient.Do(request)
+		callbackClient := &http.Client{Transport: util.NewSafeOutboundTransport()}
+		resp, err := callbackClient.Do(request)
 		if err != nil || !(resp.StatusCode >= 200 && resp.StatusCode < 400) {
 			// failed to send request
 			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)

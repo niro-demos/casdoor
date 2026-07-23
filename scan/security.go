@@ -25,6 +25,7 @@ import (
 
 	"github.com/beego/beego/v2/core/logs"
 	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
 )
 
 const dataSourceUrl = "https://casdoor.ai/casdoor-data/data.json"
@@ -131,11 +132,13 @@ func (v SecurityScanProvider) Scan(target string, command string) (string, error
 		return "", err
 	}
 
+	// Re-validate the connected address on every dial so a DNS rebind cannot
+	// steer the scan at an internal host after normalizeScanBaseURL's check.
+	transport := util.NewSafeOutboundTransport()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
+		Timeout:   5 * time.Second,
+		Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},

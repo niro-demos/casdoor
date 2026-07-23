@@ -25,7 +25,18 @@ import (
 )
 
 func sendWebhook(webhook *Webhook, record *Record, extendedUser *User) (int, string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Egress guard: reject delivery to loopback / link-local / private
+	// destinations before any outbound request, so the webhook feature cannot be
+	// used as an SSRF primitive to reach internal-only services.
+	if err := util.CheckOutboundURL(webhook.Url); err != nil {
+		return 0, "", err
+	}
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		// Re-validate on every dial (incl. redirect hops) to resist DNS rebinding.
+		Transport: util.NewSafeOutboundTransport(),
+	}
 	userMap := make(map[string]interface{})
 	var body io.Reader
 
