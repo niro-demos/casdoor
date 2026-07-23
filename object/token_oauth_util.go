@@ -249,6 +249,49 @@ func IsScopeValid(scope string, application *Application) bool {
 	return ok
 }
 
+// clampRefreshScope bounds the scope of a refreshed token so a client can never
+// widen it. Per RFC 6749 §6, the refresh grant may only PRESERVE or NARROW the
+// scope originally granted to the refresh token (oldTokenScope).
+//
+//   - If the client omits `scope`, the originally granted scope is preserved
+//     (default OAuth2 semantics).
+//   - If the client supplies a `scope`, every space-separated value must be both
+//     allowed by the application (via IsScopeValidAndExpand, the same validator
+//     the authorization_code path uses) AND already present in oldTokenScope.
+//     Any value outside the granted set is rejected (invalid_scope); this holds
+//     even when the application has an empty Scopes list, where
+//     IsScopeValidAndExpand alone would pass any string through.
+//
+// Returns the clamped scope and whether the request is valid.
+func clampRefreshScope(requestedScope string, oldTokenScope string, application *Application) (string, bool) {
+	if requestedScope == "" {
+		return oldTokenScope, true
+	}
+
+	// First bound the request to the application's configured/allowed scopes,
+	// reusing the existing validator (also expands regex scopes).
+	expandedScope, ok := IsScopeValidAndExpand(requestedScope, application)
+	if !ok {
+		return "", false
+	}
+
+	// Then intersect with what was actually granted to this refresh token, so
+	// refresh can only ever preserve or narrow scope — never widen it. This is
+	// the load-bearing check for apps with an empty Scopes list.
+	grantedSet := make(map[string]bool)
+	for _, s := range strings.Fields(oldTokenScope) {
+		grantedSet[s] = true
+	}
+
+	for _, s := range strings.Fields(expandedScope) {
+		if !grantedSet[s] {
+			return "", false
+		}
+	}
+
+	return expandedScope, true
+}
+
 func ExpireTokenByAccessToken(accessToken string) (bool, *Application, *Token, error) {
 	token, err := GetTokenByAccessToken(accessToken)
 	if err != nil {
@@ -469,8 +512,16 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		oldTokenScope = oldToken.Scope
 	}
 
-	if scope == "" {
-		scope = oldTokenScope
+	// Refresh must never widen scope: bound the requested scope to the app's
+	// allowed scopes AND to what was originally granted (oldTokenScope). An
+	// omitted scope preserves the granted scope; a supplied scope may only
+	// preserve or narrow it. See clampRefreshScope.
+	scope, ok := clampRefreshScope(scope, oldTokenScope, application)
+	if !ok {
+		return &TokenError{
+			Error:            InvalidScope,
+			ErrorDescription: "the requested scope exceeds the scope originally granted to the refresh token",
+		}, nil
 	}
 
 	// generate a new token
