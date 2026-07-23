@@ -115,6 +115,11 @@ func (c *ApiController) Signup() {
 		return
 	}
 
+	if !object.IsSignupAllowedForOrganization(application, authForm.Organization) {
+		c.ResponseError(fmt.Sprintf(c.T("auth:The application: %s does not belong to the organization: %s"), authForm.Application, authForm.Organization))
+		return
+	}
+
 	clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
 	err = object.CheckEntryIp(clientIp, nil, application, organization, c.GetAcceptLanguage())
 	if err != nil {

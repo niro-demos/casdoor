@@ -461,6 +461,27 @@ func UpdateApplication(id string, application *Application, isGlobalAdmin bool, 
 	return affected != 0, nil
 }
 
+// IsSignupAllowedForOrganization reports whether an application may be used to
+// sign up a new account into the given target organization.
+//
+// Self-service signup must only create accounts in the organization that
+// actually owns the application used to sign up. For a normal application,
+// application.Organization is its real owning organization. For a legitimately
+// shared application addressed as "app-org-<org>", getApplication() has already
+// set application.Organization to the shared target organization, so this guard
+// permits that flow while rejecting any request that names an organization the
+// application does not belong to.
+//
+// Without this check, a signup-enabled application (e.g. the built-in app) can
+// be used to reach the signup path of an unrelated organization that disabled
+// signup on its own application, defeating that organization's opt-out.
+func IsSignupAllowedForOrganization(application *Application, targetOrganization string) bool {
+	if application == nil {
+		return false
+	}
+	return application.Organization == targetOrganization
+}
+
 func AddApplication(application *Application) (bool, error) {
 	if application.Owner == "" {
 		application.Owner = "admin"
