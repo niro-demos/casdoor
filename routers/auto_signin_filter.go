@@ -132,10 +132,12 @@ func AutoSigninFilter(ctx *context.Context) {
 		return
 	}
 
-	// "/page?username=built-in/admin&password=123"
-	userId = ctx.Input.Query("username")
-	password := ctx.Input.Query("password")
-	if userId != "" && password != "" && ctx.Input.Query("grant_type") == "" {
+	// Body-based auto sign-in: "username=built-in/admin&password=123".
+	// Credentials are read ONLY from the parsed request body, never from the URL
+	// query string, so a crafted GET link cannot log a victim in and leak their
+	// credentials into access logs, browser history, or Referer headers.
+	userId, password, grantType := getAutoSigninUsernameAndPassword(ctx)
+	if userId != "" && password != "" && grantType == "" {
 		owner, name, err := util.GetOwnerAndNameFromIdWithError(userId)
 		if err != nil {
 			responseError(ctx, err.Error())
@@ -150,4 +152,19 @@ func AutoSigninFilter(ctx *context.Context) {
 
 		setSessionUser(ctx, userId)
 	}
+}
+
+// getAutoSigninUsernameAndPassword returns the username, password and grant_type
+// that the auto sign-in flow should act on. These are sign-in credentials, so
+// they must never be accepted from the URL query string (where they would leak
+// into access logs, browser history and Referer headers): they are read only
+// from the parsed request body.
+//
+// ctx.Input.Query() reads Request.Form, which Beego populates from BOTH the URL
+// query string and the request body, so it would accept credentials from a
+// crafted GET link. Request.PostFormValue() reads Request.PostForm, which is
+// populated only from the request body, so the URL query string is ignored.
+func getAutoSigninUsernameAndPassword(ctx *context.Context) (username string, password string, grantType string) {
+	req := ctx.Request
+	return req.PostFormValue("username"), req.PostFormValue("password"), req.PostFormValue("grant_type")
 }
