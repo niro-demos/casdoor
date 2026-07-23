@@ -22,6 +22,7 @@ import (
 
 	"github.com/beego/beego/v2/core/logs"
 	"github.com/beego/beego/v2/server/web/context"
+	"github.com/casdoor/casdoor/conf"
 )
 
 func getIpInfo(clientIp string) string {
@@ -37,21 +38,84 @@ func getIpInfo(clientIp string) string {
 	return strings.Trim(first, "[]")
 }
 
-func GetClientIpFromRequest(req *http.Request) string {
-	clientIp := req.Header.Get("x-forwarded-for")
-	if clientIp == "" {
-		ipPort := strings.Split(req.RemoteAddr, ":")
-		if len(ipPort) >= 1 && len(ipPort) <= 2 {
-			clientIp = ipPort[0]
-		} else if len(ipPort) > 2 {
-			idx := strings.LastIndex(req.RemoteAddr, ":")
-			clientIp = req.RemoteAddr[0:idx]
-			clientIp = strings.TrimLeft(clientIp, "[")
-			clientIp = strings.TrimRight(clientIp, "]")
-		}
+// getRemoteIp extracts the bare IP (no port) from an http.Request.RemoteAddr,
+// which is the real, TCP-observed source of the request and cannot be forged by
+// the client.
+func getRemoteIp(remoteAddr string) string {
+	if remoteAddr == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return strings.Trim(host, "[]")
+	}
+	return strings.Trim(remoteAddr, "[]")
+}
+
+// parseTrustedProxies reads the `trustedProxies` config value: a comma-separated
+// list of proxy IPs or CIDR ranges whose `X-Forwarded-For` header may be
+// trusted. Empty (the default) means no proxy is trusted, so the header is
+// ignored entirely and the real TCP peer is used.
+func parseTrustedProxies() ([]*net.IPNet, []net.IP) {
+	raw := conf.GetConfigString("trustedProxies")
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
 	}
 
-	return getIpInfo(clientIp)
+	var nets []*net.IPNet
+	var ips []net.IP
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, ipNet, err := net.ParseCIDR(part); err == nil {
+			nets = append(nets, ipNet)
+			continue
+		}
+		if ip := net.ParseIP(part); ip != nil {
+			ips = append(ips, ip)
+		}
+	}
+	return nets, ips
+}
+
+// isTrustedProxy reports whether the immediate TCP peer (remoteIp) is a
+// configured, trusted reverse proxy / load balancer.
+func isTrustedProxy(remoteIp string) bool {
+	ip := net.ParseIP(remoteIp)
+	if ip == nil {
+		return false
+	}
+	nets, ips := parseTrustedProxies()
+	for _, trusted := range ips {
+		if trusted.Equal(ip) {
+			return true
+		}
+	}
+	for _, ipNet := range nets {
+		if ipNet.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetClientIpFromRequest returns the source IP of the request.
+//
+// SECURITY: `X-Forwarded-For` is a client-supplied header that any caller can
+// forge. It is only honored when the immediate TCP peer (req.RemoteAddr) is a
+// configured trusted proxy (see the `trustedProxies` config). Otherwise the
+// header is ignored and the real, TCP-observed peer address is used. This
+// prevents an unauthenticated client from spoofing its source IP — e.g. to
+// bypass an IP allow-list — by setting the header itself.
+func GetClientIpFromRequest(req *http.Request) string {
+	remoteIp := getRemoteIp(req.RemoteAddr)
+
+	if xff := req.Header.Get("x-forwarded-for"); xff != "" && isTrustedProxy(remoteIp) {
+		return getIpInfo(xff)
+	}
+
+	return remoteIp
 }
 
 func LogInfo(ctx *context.Context, f string, v ...interface{}) {
