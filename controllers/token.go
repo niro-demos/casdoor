@@ -506,7 +506,7 @@ func (c *ApiController) ValidateOAuth(ignoreValidSecret bool) (ok bool, applicat
 func (c *ApiController) IntrospectToken() {
 	tokenValue := c.Ctx.Input.Query("token")
 
-	ok, application, _, _, err := c.ValidateOAuth(false)
+	ok, application, callerClientId, _, err := c.ValidateOAuth(false)
 	if err != nil || !ok {
 		return
 	}
@@ -613,6 +613,15 @@ func (c *ApiController) IntrospectToken() {
 		}
 		if application == nil {
 			c.ResponseError(fmt.Sprintf(c.T("auth:The application: %s does not exist"), token.Application))
+			return
+		}
+
+		// RFC 7662 §2.1: only the client the token was issued to may introspect
+		// it. The authenticated caller (callerClientId) must own the token;
+		// otherwise return {"active": false} rather than disclosing the token's
+		// identity/scope/metadata to a non-owning client.
+		if !object.IsIntrospectionCallerAuthorized(callerClientId, application.ClientId) {
+			respondWithInactiveToken()
 			return
 		}
 
