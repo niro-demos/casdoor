@@ -18,7 +18,6 @@ import (
 	stdcontext "context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -266,10 +265,3 @@ func getHostname(s string) string {
 	return res
 }
 
-func removePort(s string) string {
-	ipStr, _, err := net.SplitHostPort(s)
-	if err != nil {
-		ipStr = s
-	}
-	return ipStr
-}
