@@ -55,6 +55,8 @@ func UploadPermissions(owner string, path string) (bool, error) {
 		return false, err
 	}
 
+	uploadedPermissions = scopeUploadedPermissionsToOwner(owner, uploadedPermissions)
+
 	uploadedPermissions = filterInvalidUploadedPermissions(uploadedPermissions)
 
 	oldPermissionMap, err := getPermissionMap(owner)
@@ -79,6 +81,42 @@ func UploadPermissions(owner string, path string) (bool, error) {
 	}
 
 	return affected, nil
+}
+
+// scopeUploadedPermissionsToOwner enforces that a bulk permission upload can only
+// create records inside the caller's own organization.
+//
+// The `owner` argument is the caller's enforced session org (derived from the
+// session in controllers/permission_upload.go). The parsed rows' Owner and
+// subject-reference fields come verbatim from the uploaded spreadsheet and must
+// not be trusted: without this, an org-scoped admin could plant a wildcard-Allow
+// permission owned by (or granting access to subjects in) any other tenant,
+// including the built-in global-admin org.
+//
+// A global admin (owner == builtInAdminOrg) legitimately manages every org, so
+// their explicit per-row owners and subjects are left untouched.
+func scopeUploadedPermissionsToOwner(owner string, permissions []*Permission) []*Permission {
+	if owner == builtInAdminOrg {
+		return permissions
+	}
+
+	for _, permission := range permissions {
+		if permission == nil {
+			continue
+		}
+
+		// Ignore whatever the spreadsheet's owner column contained; a non-global
+		// admin can only create records in their own org.
+		permission.Owner = owner
+
+		// Drop any subject reference that points outside the caller's own org so
+		// the upload cannot grant access to (or through) foreign-org subjects.
+		permission.Users = filterOwnerScopedRefs(owner, permission.Users)
+		permission.Roles = filterOwnerScopedRefs(owner, permission.Roles)
+		permission.Groups = filterOwnerScopedRefs(owner, permission.Groups)
+	}
+
+	return permissions
 }
 
 func filterInvalidUploadedPermissions(permissions []*Permission) []*Permission {
