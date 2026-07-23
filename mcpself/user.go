@@ -66,6 +66,11 @@ func (c *McpController) handleGetUserTool(id interface{}, args GetUserArgs) {
 
 // handleAddUserTool handles the add_user MCP tool
 func (c *McpController) handleAddUserTool(id interface{}, args AddUserArgs) {
+	if err := util.CheckForbiddenCharacters(args.User.Name); err != nil {
+		c.SendToolErrorResult(id, err.Error())
+		return
+	}
+
 	if err := checkQuotaForUser(); err != nil {
 		c.SendToolErrorResult(id, err.Error())
 		return
@@ -92,6 +97,11 @@ func (c *McpController) handleAddUserTool(id interface{}, args AddUserArgs) {
 
 // handleUpdateUserTool handles the update_user MCP tool
 func (c *McpController) handleUpdateUserTool(id interface{}, args UpdateUserArgs) {
+	if err := util.CheckForbiddenCharacters(args.User.Name); err != nil {
+		c.SendToolErrorResult(id, err.Error())
+		return
+	}
+
 	oldUser, err := object.GetUser(args.Id)
 	if err != nil {
 		c.SendToolErrorResult(id, err.Error())

@@ -33,6 +33,24 @@ var (
 	ReUserNameWithEmail        *regexp.Regexp
 )
 
+// ForbiddenNameChars are the characters that must never appear in an object's
+// "name" field. Names are used as part of the owner/name composite ID that every
+// GET-by-id endpoint relies on, so any of these characters would orphan the record
+// from that lookup.
+const ForbiddenNameChars = `/?:#&%=+;`
+
+// CheckForbiddenCharacters returns an error when name contains any character in
+// ForbiddenNameChars. This is the single enforcement point for the
+// forbidden-character rule so that it applies uniformly across every transport
+// (REST add-/update- endpoints and the MCP tool-call endpoint) that persists a
+// named object. The returned message matches the one surfaced by the REST filter.
+func CheckForbiddenCharacters(name string) error {
+	if strings.ContainsAny(name, ForbiddenNameChars) {
+		return fmt.Errorf("Field 'name' contains forbidden characters: %q", ForbiddenNameChars)
+	}
+	return nil
+}
+
 func init() {
 	rePhone, _ = regexp.Compile(`(\d{3})\d*(\d{4})`)
 	ReWhiteSpace, _ = regexp.Compile(`\s`)

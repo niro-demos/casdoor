@@ -52,6 +52,11 @@ func (c *McpController) handleGetApplicationTool(id interface{}, args GetApplica
 
 // handleAddApplicationTool handles the add_application MCP tool
 func (c *McpController) handleAddApplicationTool(id interface{}, args AddApplicationArgs) {
+	if err := util.CheckForbiddenCharacters(args.Application.Name); err != nil {
+		c.SendToolErrorResult(id, err.Error())
+		return
+	}
+
 	count, err := object.GetApplicationCount("", "", "")
 	if err != nil {
 		c.SendToolErrorResult(id, err.Error())
@@ -79,6 +84,11 @@ func (c *McpController) handleAddApplicationTool(id interface{}, args AddApplica
 
 // handleUpdateApplicationTool handles the update_application MCP tool
 func (c *McpController) handleUpdateApplicationTool(id interface{}, args UpdateApplicationArgs) {
+	if err := util.CheckForbiddenCharacters(args.Application.Name); err != nil {
+		c.SendToolErrorResult(id, err.Error())
+		return
+	}
+
 	if err := object.CheckIpWhitelist(args.Application.IpWhitelist, c.GetAcceptLanguage()); err != nil {
 		c.SendToolErrorResult(id, err.Error())
 		return

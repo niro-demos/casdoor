@@ -16,14 +16,12 @@ package routers
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"strings"
 
 	"github.com/beego/beego/v2/server/web/context"
+	"github.com/casdoor/casdoor/util"
 )
-
-var forbiddenChars = `/?:#&%=+;`
 
 func FieldValidationFilter(ctx *context.Context) {
 	if ctx.Input.Method() != "POST" {
@@ -48,8 +46,8 @@ func FieldValidationFilter(ctx *context.Context) {
 	}
 
 	if value, ok := requestData["name"].(string); ok {
-		if strings.ContainsAny(value, forbiddenChars) {
-			responseError(ctx, fmt.Sprintf("Field 'name' contains forbidden characters: %q", forbiddenChars))
+		if err := util.CheckForbiddenCharacters(value); err != nil {
+			responseError(ctx, err.Error())
 			return
 		}
 	}
