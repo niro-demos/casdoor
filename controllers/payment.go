@@ -145,17 +145,14 @@ func (c *ApiController) GetPayment() {
 		return
 	}
 
-	if !c.IsAdmin() {
-		sessionUser := c.GetSessionUsername()
-		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
-		if payment != nil && (payment.Owner != sessionUserOwner || payment.User != sessionUserName) {
-			c.ResponseError("Forbidden")
-			return
-		}
+	authorized, err := isPaymentAccessAuthorized(payment, c.GetSessionUsername(), c.IsAdmin())
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	if !authorized {
+		c.ResponseError("Forbidden")
+		return
 	}
 
 	c.ResponseOk(payment)
@@ -256,6 +253,18 @@ func (c *ApiController) InvoicePayment() {
 	payment, err := object.GetPayment(id)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+
+	// Gate invoice generation on payment ownership, mirroring GetPayment: a
+	// non-admin may only invoice a payment whose Owner/User match their own.
+	authorized, err := isPaymentAccessAuthorized(payment, c.GetSessionUsername(), c.IsAdmin())
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	if !authorized {
+		c.ResponseError("Forbidden")
 		return
 	}
 

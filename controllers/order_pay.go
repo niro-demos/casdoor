@@ -81,6 +81,15 @@ func (c *ApiController) PlaceOrder() {
 		return
 	}
 
+	// `owner` is caller-supplied and selects which tenant's catalog, coupons, and
+	// order ledger are mutated. A non-admin caller must only be able to transact
+	// inside their own organization, mirroring the `userName` check above and the
+	// ownership gate in PayOrder/CancelOrder.
+	if !isOrderOwnerAuthorized(owner, user.Owner, c.IsAdmin()) {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	order, err := object.PlaceOrder(owner, productInfos, user, req.CouponCode)
 	if err != nil {
 		c.ResponseError(err.Error())
