@@ -21,12 +21,20 @@ import (
 )
 
 func (c *RootController) HandleScim() {
-	_, ok := c.RequireAdmin()
+	owner, ok := c.RequireAdmin()
 	if !ok {
 		return
 	}
 
-	path := c.Ctx.Request.URL.Path
-	c.Ctx.Request.URL.Path = strings.TrimPrefix(path, "/scim")
-	scim.Server.ServeHTTP(c.Ctx.ResponseWriter, c.Ctx.Request)
+	// Thread the caller's organization ("owner") into the SCIM layer so every
+	// resource handler can enforce tenant isolation. RequireAdmin returns the
+	// empty string for a global/built-in admin (allowed across all tenants) and
+	// the admin's own organization otherwise. Discarding this value here is what
+	// previously let an org-scoped admin read/modify/delete users in any tenant.
+	req := c.Ctx.Request
+	req = req.WithContext(scim.WithCallerOwner(req.Context(), owner))
+
+	path := req.URL.Path
+	req.URL.Path = strings.TrimPrefix(path, "/scim")
+	scim.Server.ServeHTTP(c.Ctx.ResponseWriter, req)
 }

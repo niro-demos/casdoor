@@ -28,6 +28,32 @@ type UserResourceHandler struct{}
 // https://github.com/elimity-com/scim/blob/master/resource_handler_test.go Example in-memory resource handler
 // https://datatracker.ietf.org/doc/html/rfc7644#section-3.4 How to query/update resources
 
+// resolveScimUserForCaller loads the user identified by id and enforces tenant
+// isolation against the caller's organization carried on the request context.
+//
+// It returns a SCIM "resource not found" error when the user does not exist OR
+// when the caller (an org-scoped admin) is not allowed to see the user's tenant,
+// so a cross-tenant probe is indistinguishable from a missing resource. A
+// global/built-in admin (empty caller owner) resolves any user. A request with
+// no caller-owner context is denied rather than treated as global admin.
+func resolveScimUserForCaller(r *http.Request, id string) (*object.User, error) {
+	callerOwner, ok := callerOwnerFromRequest(r)
+	if !ok {
+		// No tenant context was established (HandleScim did not run). Fail
+		// closed: never operate on the global user table without a caller org.
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+
+	user, err := object.GetUserByUserIdOnly(id)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil || !callerCanAccessOwner(callerOwner, user.Owner) {
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+	return user, nil
+}
+
 func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
 	resource := &scim.Resource{Attributes: attrs}
 	err := AddScimUser(resource)
@@ -35,31 +61,34 @@ func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttribut
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := GetScimUser(id)
+	user, err := resolveScimUserForCaller(r, id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if resource == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
-	}
-	return *resource, nil
+	return *user2resource(user), nil
 }
 
 func (h UserResourceHandler) Delete(r *http.Request, id string) error {
-	user, err := object.GetUserByUserIdOnly(id)
+	user, err := resolveScimUserForCaller(r, id)
 	if err != nil {
 		return err
-	}
-	if user == nil {
-		return errors.ScimErrorResourceNotFound(id)
 	}
 	_, err = object.DeleteUser(user)
 	return err
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	callerOwner, ok := callerOwnerFromRequest(r)
+	if !ok {
+		// No tenant context: return nothing rather than the whole global table.
+		return scim.Page{}, nil
+	}
+
+	// An empty callerOwner (global/built-in admin) means "all tenants"; the
+	// owner-scoped object queries below apply the owner filter only when it is
+	// non-empty, so an org-scoped admin sees exactly its own organization.
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		count, err := object.GetUserCount(callerOwner, "", "", "")
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -68,7 +97,7 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 
 	resources := make([]scim.Resource, 0)
 	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	users, err := object.GetPaginationUsers(callerOwner, params.StartIndex-1, params.Count, "", "", "", "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -82,39 +111,19 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 }
 
 func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim.PatchOperation) (scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
-	if err != nil {
+	if _, err := resolveScimUserForCaller(r, id); err != nil {
 		return scim.Resource{}, err
-	}
-	if user == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	return UpdateScimUserByPatchOperation(id, operations)
 }
 
 func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
-	if err != nil {
+	if _, err := resolveScimUserForCaller(r, id); err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
-	}
 	resource := &scim.Resource{Attributes: attrs}
-	err = UpdateScimUser(id, resource)
+	err := UpdateScimUser(id, resource)
 	return *resource, err
-}
-
-func GetScimUser(id string) (*scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
-	if err != nil {
-		return nil, err
-	}
-	if user == nil {
-		return nil, nil
-	}
-	r := user2resource(user)
-	return r, nil
 }
 
 func AddScimUser(r *scim.Resource) error {
