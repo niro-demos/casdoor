@@ -22,13 +22,24 @@ import (
 	"github.com/casdoor/casdoor/util"
 )
 
-type CompoundRule struct{}
+type CompoundRule struct {
+	// owner is the organization that owns this compound rule. Referenced rules
+	// are resolved on its behalf so a compound rule cannot invoke another
+	// organization's private rule — even if a cross-tenant reference was
+	// persisted before ownership validation was enforced at creation time.
+	owner string
+}
 
 func (r *CompoundRule) checkRule(expressions []*object.Expression, req *http.Request) (*RuleResult, error) {
 	operators := util.NewStack()
 	res := true
 	for _, expression := range expressions {
 		isHit := true
+		// Reject cross-tenant references at evaluation time. This blocks any
+		// reference persisted before creation-time validation existed.
+		if _, err := object.GetRulesByRuleIdsWithOwner([]string{expression.Value}, r.owner); err != nil {
+			return nil, err
+		}
 		result, err := CheckRules([]string{expression.Value}, req)
 		if err != nil {
 			return nil, err

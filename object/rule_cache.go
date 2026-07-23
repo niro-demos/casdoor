@@ -55,3 +55,22 @@ func GetRulesByRuleIds(ids []string) ([]*Rule, error) {
 	}
 	return res, nil
 }
+
+// GetRulesByRuleIdsWithOwner resolves referenced rule IDs on behalf of a rule
+// owned by owner (e.g. a Compound rule referencing other rules). It enforces
+// tenant isolation: a referenced rule may only be resolved when it belongs to
+// the requesting owner or to the globally-shared "admin" owner. A reference to
+// a rule owned by a different organization is reported with the SAME generic
+// "not found" error used for a truly-missing rule, so the response cannot be
+// used to enumerate another organization's private rule namespace.
+func GetRulesByRuleIdsWithOwner(ids []string, owner string) ([]*Rule, error) {
+	var res []*Rule
+	for _, id := range ids {
+		rule, ok := ruleMap[id]
+		if !ok || (rule.Owner != owner && rule.Owner != "admin") {
+			return nil, fmt.Errorf("rule: %s not found", id)
+		}
+		res = append(res, rule)
+	}
+	return res, nil
+}

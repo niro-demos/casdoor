@@ -108,7 +108,7 @@ func (c *ApiController) AddRule() {
 		c.ResponseError(err.Error())
 		return
 	}
-	err = checkExpressions(rule.Expressions, rule.Type)
+	err = checkExpressions(rule.Expressions, rule.Type, rule.Owner)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -133,7 +133,7 @@ func (c *ApiController) UpdateRule() {
 		return
 	}
 
-	err = checkExpressions(rule.Expressions, rule.Type)
+	err = checkExpressions(rule.Expressions, rule.Type, rule.Owner)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -163,7 +163,7 @@ func (c *ApiController) DeleteRule() {
 	c.ServeJSON()
 }
 
-func checkExpressions(expressions []*object.Expression, ruleType string) error {
+func checkExpressions(expressions []*object.Expression, ruleType string, owner string) error {
 	values := make([]string, len(expressions))
 	for i, expression := range expressions {
 		values[i] = expression.Value
@@ -176,7 +176,7 @@ func checkExpressions(expressions []*object.Expression, ruleType string) error {
 	case "IP Rate Limiting":
 		return checkIpRateRule(expressions)
 	case "Compound":
-		return checkCompoundRules(values)
+		return checkCompoundRules(values, owner)
 	}
 	return nil
 }
@@ -220,8 +220,11 @@ func checkIpRateRule(expressions []*object.Expression) error {
 	return nil
 }
 
-func checkCompoundRules(rules []string) error {
-	_, err := object.GetRulesByRuleIds(rules)
+func checkCompoundRules(rules []string, owner string) error {
+	// Resolve referenced rules on behalf of the compound rule's owner so that a
+	// reference to another organization's private rule is rejected (and reported
+	// with the same generic "not found" error, preventing cross-org enumeration).
+	_, err := object.GetRulesByRuleIdsWithOwner(rules, owner)
 	if err != nil {
 		return err
 	}

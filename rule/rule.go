@@ -51,7 +51,7 @@ func CheckRules(ruleIds []string, r *http.Request) (*RuleResult, error) {
 				ruleName: rule.GetId(),
 			}
 		case "Compound":
-			ruleObj = &CompoundRule{}
+			ruleObj = &CompoundRule{owner: rule.Owner}
 		default:
 			return nil, fmt.Errorf("unknown rule type: %s for rule: %s", rule.Type, rule.GetId())
 		}
