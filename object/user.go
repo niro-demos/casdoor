@@ -678,6 +678,11 @@ func GetMaskedUser(user *User, isAdminOrSelf bool, errs ...error) (*User, error)
 	if user.Password != "" {
 		user.Password = "***"
 	}
+	// The bcrypt salt is credential material and must never be returned, on any
+	// response path (masked, public projection, admin, or self).
+	if user.PasswordSalt != "" {
+		user.PasswordSalt = ""
+	}
 
 	if !isAdminOrSelf {
 		if user.OriginalToken != "" {
@@ -717,6 +722,44 @@ func GetMaskedUser(user *User, isAdminOrSelf bool, errs ...error) (*User, error)
 	}
 
 	return user, nil
+}
+
+// GetPublicUser reduces a user record to the minimal, non-sensitive projection
+// that is safe to expose to unauthenticated or cross-tenant callers when the
+// owning organization has IsProfilePublic=true. It must never carry credential
+// material (password/salt/tokens/MFA) or contactable PII (email/phone/idCard).
+func GetPublicUser(user *User) *User {
+	if user == nil {
+		return nil
+	}
+
+	// Allowlist model: start from an empty record and copy only the fields that
+	// are safe to expose to an unauthenticated or cross-tenant caller. This is
+	// deliberately a small allowlist rather than a denylist, so that new
+	// sensitive fields added to the User struct are omitted by default.
+	return &User{
+		Owner:           user.Owner,
+		Name:            user.Name,
+		CreatedTime:     user.CreatedTime,
+		Id:              user.Id,
+		Type:            user.Type,
+		DisplayName:     user.DisplayName,
+		FirstName:       user.FirstName,
+		LastName:        user.LastName,
+		Avatar:          user.Avatar,
+		AvatarType:      user.AvatarType,
+		PermanentAvatar: user.PermanentAvatar,
+		Homepage:        user.Homepage,
+		Bio:             user.Bio,
+		Tag:             user.Tag,
+		Region:          user.Region,
+		Location:        user.Location,
+		Language:        user.Language,
+		IsOnline:        user.IsOnline,
+		IsAdmin:         user.IsAdmin,
+		IsForbidden:     user.IsForbidden,
+		IsDeleted:       user.IsDeleted,
+	}
 }
 
 func GetFilteredUser(user *User, isAdmin bool, isAdminOrSelf bool, accountItems []*AccountItem) (*User, error) {

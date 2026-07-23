@@ -209,14 +209,22 @@ func (c *ApiController) GetUser() {
 			return
 		}
 
-		if !organization.IsProfilePublic {
-			requestUserId := c.GetSessionUsername()
-			var hasPermission bool
-			hasPermission, err = object.CheckUserPermission(requestUserId, user.GetId(), true, c.GetAcceptLanguage())
-			if !hasPermission {
-				c.ResponseError(err.Error())
+		// Authorization is unconditional: never let IsProfilePublic bypass the
+		// permission check. A caller who is not the owner/admin of the target
+		// user is only ever allowed a reduced public projection, and only when
+		// the organization explicitly opts in via IsProfilePublic. It is never
+		// "full record vs. nothing".
+		requestUserId := c.GetSessionUsername()
+		var hasPermission bool
+		hasPermission, err = object.CheckUserPermission(requestUserId, user.GetId(), true, c.GetAcceptLanguage())
+		if !hasPermission {
+			if organization.IsProfilePublic {
+				user = object.GetPublicUser(user)
+				c.ResponseOk(user)
 				return
 			}
+			c.ResponseError(err.Error())
+			return
 		}
 	}
 
