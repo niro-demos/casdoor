@@ -100,6 +100,8 @@ type CasAuthenticationSuccessWrapper struct {
 	AuthenticationSuccess *CasAuthenticationSuccess // the token we issued
 	Service               string                    // to which service this token is issued
 	UserId                string
+	Organization          string // the organization this token was issued under
+	Application           string // the application this token was issued under
 }
 
 type CasProxySuccess struct {
@@ -139,6 +141,37 @@ func CheckCasLogin(application *Application, lang string, service string) error 
 	return nil
 }
 
+// CheckCasTicketScope enforces the CAS ticket-validation invariant against the
+// service ticket the store issued: the caller's requested service URL must
+// EXACTLY match the URL the ticket was issued for (a prefix match lets an
+// attacker-controlled lookalike domain such as
+// "https://legit.example.com.attacker.com/phish" redeem a ticket issued for
+// "https://legit.example.com"), and the ticket must be redeemed only at the
+// organization/application path it was actually issued under (so a ticket
+// issued at org-alpha/app-alpha cannot be validated at org-beta/app-beta).
+//
+// requestedService is compared both raw and query-unescaped, mirroring how the
+// caller may percent-encode the query parameter. organization/application are
+// the route path params; an empty stored value (e.g. a legacy proxy ticket) is
+// treated as "unbound" and skips only that part of the check.
+//
+// Returns "" when validation should succeed, or a CAS error code otherwise.
+func CheckCasTicketScope(wrapper *CasAuthenticationSuccessWrapper, requestedService, unescapedService, organization, application string) string {
+	if wrapper == nil {
+		return "INVALID_TICKET"
+	}
+	if requestedService != wrapper.Service && unescapedService != wrapper.Service {
+		return "INVALID_SERVICE"
+	}
+	if wrapper.Organization != "" && organization != wrapper.Organization {
+		return "INVALID_SERVICE"
+	}
+	if wrapper.Application != "" && application != wrapper.Application {
+		return "INVALID_SERVICE"
+	}
+	return ""
+}
+
 func StoreCasTokenForPgt(token *CasAuthenticationSuccess, service, userId string) string {
 	pgt := fmt.Sprintf("PGT-%s", util.GenerateId())
 	pgtToServiceResponse.Store(pgt, &CasAuthenticationSuccessWrapper{
@@ -168,19 +201,22 @@ func GetCasTokenByPgt(pgt string) (bool, *CasAuthenticationSuccess, string, stri
 	return false, nil, "", ""
 }
 
-// GetCasTokenByTicket
+// GetCasTokenByTicket consumes (LoadAndDelete) the service ticket and returns
+// the full stored wrapper, which carries not only the AuthenticationSuccess and
+// service URL but also the organization/application the ticket was issued under.
+// Callers MUST run CheckCasTicketScope against the wrapper before trusting it,
+// so that a ticket is redeemed only for its exact issued service and only at its
+// issuing org/app path.
 /**
 @ret1: whether a token is found
-@ret2: token, nil if not found
-@ret3: the service URL who requested to issue this token
-@ret4: userIf of user who requested to issue this token
+@ret2: the stored wrapper (nil if not found)
 */
-func GetCasTokenByTicket(ticket string) (bool, *CasAuthenticationSuccess, string, string) {
+func GetCasTokenByTicket(ticket string) (bool, *CasAuthenticationSuccessWrapper) {
 	if responseWrapperType, ok := stToServiceResponse.LoadAndDelete(ticket); ok {
 		responseWrapperTypeCast := responseWrapperType.(*CasAuthenticationSuccessWrapper)
-		return true, responseWrapperTypeCast.AuthenticationSuccess, responseWrapperTypeCast.Service, responseWrapperTypeCast.UserId
+		return true, responseWrapperTypeCast
 	}
-	return false, nil, "", ""
+	return false, nil
 }
 
 func StoreCasTokenForProxyTicket(token *CasAuthenticationSuccess, targetService, userId string) string {
@@ -202,7 +238,7 @@ func escapeXMLText(input string) (string, error) {
 	return sb.String(), nil
 }
 
-func GenerateCasToken(userId string, service string) (string, error) {
+func GenerateCasToken(userId string, service string, organization string, application string) (string, error) {
 	user, err := GetUser(userId)
 	if err != nil {
 		return "", err
@@ -278,6 +314,8 @@ func GenerateCasToken(userId string, service string) (string, error) {
 		AuthenticationSuccess: &authenticationSuccess,
 		Service:               service,
 		UserId:                userId,
+		Organization:          organization,
+		Application:           application,
 	})
 	return st, nil
 }
@@ -288,7 +326,7 @@ func GenerateCasToken(userId string, service string) (string, error) {
 @ret2: the service URL who requested to issue this token
 @ret3: error
 */
-func GetValidationBySaml(samlRequest string, host string) (string, string, error) {
+func GetValidationBySaml(samlRequest string, host string, pathOrganization string, pathApplication string) (string, string, error) {
 	var request Saml11Request
 	err := xml.Unmarshal([]byte(samlRequest), &request)
 	if err != nil {
@@ -300,10 +338,21 @@ func GetValidationBySaml(samlRequest string, host string) (string, string, error
 		return "", "", fmt.Errorf("request.AssertionArtifact.InnerXML error, AssertionArtifact field not found")
 	}
 
-	ok, _, service, userId := GetCasTokenByTicket(ticket)
+	ok, wrapper := GetCasTokenByTicket(ticket)
 	if !ok {
 		return "", "", fmt.Errorf("the CAS token for ticket %s is not found", ticket)
 	}
+	// Enforce that the ticket is redeemed only at the org/application path it was
+	// issued under (the caller-supplied TARGET is matched separately against the
+	// returned service by the controller).
+	if wrapper.Organization != "" && pathOrganization != wrapper.Organization {
+		return "", "", fmt.Errorf("the CAS token for ticket %s was not issued for this organization/application", ticket)
+	}
+	if wrapper.Application != "" && pathApplication != wrapper.Application {
+		return "", "", fmt.Errorf("the CAS token for ticket %s was not issued for this organization/application", ticket)
+	}
+	service := wrapper.Service
+	userId := wrapper.UserId
 
 	user, err := GetUser(userId)
 	if err != nil {

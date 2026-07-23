@@ -268,11 +268,21 @@ func (c *ApiController) HandleLoggedIn(application *object.Application, user *ob
 		service := c.Ctx.Input.Query("service")
 		resp = wrapErrorResponse(nil)
 		if service != "" {
-			st, err := object.GenerateCasToken(userId, service)
-			if err != nil {
+			// The service URL must be a registered redirect URI of the
+			// application before we mint a signed CAS ticket for it — the same
+			// allowlist enforcement CheckCasLogin applies in the CAS pre-flight
+			// path, and that OAuth/SAML already apply at ticket issuance.
+			// Otherwise any authenticated user could mint an assertion bound to
+			// an arbitrary attacker-controlled destination.
+			if err := object.CheckCasLogin(application, c.GetAcceptLanguage(), service); err != nil {
 				resp = wrapErrorResponse(err)
 			} else {
-				resp.Data = st
+				st, err := object.GenerateCasToken(userId, service, application.Organization, application.Name)
+				if err != nil {
+					resp = wrapErrorResponse(err)
+				} else {
+					resp.Data = st
+				}
 			}
 		}
 

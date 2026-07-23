@@ -48,10 +48,13 @@ func (c *RootController) CasValidate() {
 		c.Ctx.Output.Body([]byte("no\n"))
 		return
 	}
-	if ok, response, issuedService, _ := object.GetCasTokenByTicket(ticket); ok {
-		// check whether service is the one for which we previously issued token
-		if issuedService == service {
-			c.Ctx.Output.Body([]byte(fmt.Sprintf("yes\n%s\n", response.User)))
+	organization := c.Ctx.Input.Param(":organization")
+	application := c.Ctx.Input.Param(":application")
+	if ok, wrapper := object.GetCasTokenByTicket(ticket); ok {
+		// check that the service exactly matches the one the ticket was issued
+		// for, and that the ticket is redeemed only at its issuing org/app path
+		if object.CheckCasTicketScope(wrapper, service, queryUnescape(service), organization, application) == "" {
+			c.Ctx.Output.Body([]byte(fmt.Sprintf("yes\n%s\n", wrapper.AuthenticationSuccess.User)))
 			return
 		}
 	}
@@ -98,15 +101,22 @@ func (c *RootController) CasP3ProxyValidate() {
 		c.sendCasAuthenticationResponseErr(InvalidRequest, "service and ticket must exist", format)
 		return
 	}
-	ok, response, issuedService, userId := object.GetCasTokenByTicket(ticket)
+	organization := c.Ctx.Input.Param(":organization")
+	application := c.Ctx.Input.Param(":application")
+	ok, wrapper := object.GetCasTokenByTicket(ticket)
 	// find the token
 	if ok {
-		// check whether service is the one for which we previously issued token
-		if strings.HasPrefix(service, issuedService) || strings.HasPrefix(queryUnescape(service), issuedService) {
-			serviceResponse.Success = response
+		// check that the service EXACTLY matches the one for which we previously
+		// issued the token, and that the ticket is redeemed only at the
+		// organization/application path it was issued under. A prefix match here
+		// would let an attacker-controlled lookalike domain redeem a legitimate
+		// ticket, and ignoring the org/app path would let a ticket be validated
+		// at any tenant's endpoint.
+		if code := object.CheckCasTicketScope(wrapper, service, queryUnescape(service), organization, application); code == "" {
+			serviceResponse.Success = wrapper.AuthenticationSuccess
 		} else {
-			// service not match
-			c.sendCasAuthenticationResponseErr(InvalidService, fmt.Sprintf("service %s and %s does not match", service, issuedService), format)
+			// service / org / app does not match the issued ticket
+			c.sendCasAuthenticationResponseErr(code, fmt.Sprintf("service %s does not match the ticket's issued service/organization/application", service), format)
 			return
 		}
 	} else {
@@ -114,6 +124,7 @@ func (c *RootController) CasP3ProxyValidate() {
 		c.sendCasAuthenticationResponseErr(InvalidTicket, fmt.Sprintf("Ticket %s not recognized", ticket), format)
 		return
 	}
+	userId := wrapper.UserId
 
 	if pgtUrl != "" && serviceResponse.Failure == nil {
 		// that means we are in proxy web flow
@@ -216,13 +227,15 @@ func (c *RootController) SamlValidate() {
 		return
 	}
 
-	response, service, err := object.GetValidationBySaml(envelopRequest.Body.Content, c.Ctx.Request.Host)
+	organization := c.Ctx.Input.Param(":organization")
+	application := c.Ctx.Input.Param(":application")
+	response, service, err := object.GetValidationBySaml(envelopRequest.Body.Content, c.Ctx.Request.Host, organization, application)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
 
-	if !strings.HasPrefix(target, service) {
+	if target != service {
 		c.ResponseError(fmt.Sprintf(c.T("cas:Service %s and %s do not match"), target, service))
 		return
 	}
