@@ -323,6 +323,10 @@ func (c *ApiController) GetAllObjects() {
 		}
 	}
 
+	if !c.requireUserScope(userId) {
+		return
+	}
+
 	objects, err := object.GetAllObjects(userId)
 	if err != nil {
 		c.ResponseError(err.Error())
@@ -349,6 +353,10 @@ func (c *ApiController) GetAllActions() {
 		}
 	}
 
+	if !c.requireUserScope(userId) {
+		return
+	}
+
 	actions, err := object.GetAllActions(userId)
 	if err != nil {
 		c.ResponseError(err.Error())
@@ -373,6 +381,10 @@ func (c *ApiController) GetAllRoles() {
 			c.ResponseError(c.T("general:Please login first"))
 			return
 		}
+	}
+
+	if !c.requireUserScope(userId) {
+		return
 	}
 
 	roles, err := object.GetAllRoles(userId)

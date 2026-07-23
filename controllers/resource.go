@@ -58,6 +58,14 @@ func (c *ApiController) GetResources() {
 		return
 	}
 
+	// Scope the listing to the caller's own organization: a non-global-admin
+	// must not enumerate another tenant's resources by supplying that tenant's
+	// name in the `owner` query parameter (the route-level Casbin rule for
+	// /api/get-resources is a blanket allow, so the handler is the gate).
+	if !c.requireTenantScope(owner) {
+		return
+	}
+
 	if isOrgAdmin {
 		user = ""
 	}
