@@ -447,7 +447,11 @@ func downloadCLI() error {
 // @Success 200 {object} controllers.Response The Response object
 // @router /refresh-engines [post]
 func (c *ApiController) RefreshEngines() {
-	if !conf.IsDemoMode() && !c.IsAdmin() {
+	// RefreshEngines is a platform-global, non-tenant-scoped operation: it
+	// deletes and re-downloads the shared Casbin CLI binaries used by every
+	// tenant's command execution. It must require a true global/site admin, not
+	// any org-scoped admin (which c.IsAdmin() would wrongly clear).
+	if !conf.IsDemoMode() && !c.IsGlobalAdmin() {
 		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return
 	}

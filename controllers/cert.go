@@ -45,12 +45,14 @@ func (c *ApiController) GetCerts() {
 			return
 		}
 
-		if !c.IsAdmin() {
-			certs, err = object.GetMaskedCerts(certs, nil)
-			if err != nil {
-				c.ResponseError(err.Error())
-				return
-			}
+		// Platform-owned ("admin"-owned) certs — including the shared JWT-signing
+		// cert — are returned to every org by object.GetCerts. Only a true global
+		// admin may see their private keys unmasked; any org-scoped admin (whom
+		// c.IsAdmin() would wrongly clear) must receive masked certs.
+		certs, err = maskCertsForViewer(certs, c.IsGlobalAdmin())
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
 		}
 
 		c.ResponseOk(certs)
@@ -69,12 +71,10 @@ func (c *ApiController) GetCerts() {
 			return
 		}
 
-		if !c.IsAdmin() {
-			certs, err = object.GetMaskedCerts(certs, err)
-			if err != nil {
-				c.ResponseError(err.Error())
-				return
-			}
+		certs, err = maskCertsForViewer(certs, c.IsGlobalAdmin())
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
 		}
 
 		c.ResponseOk(certs, paginator.Nums())
