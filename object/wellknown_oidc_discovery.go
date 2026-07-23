@@ -18,7 +18,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"net"
 	"net/url"
 	"strings"
 
@@ -64,43 +63,37 @@ type WebFingerLink struct {
 	Href string `json:"href"`
 }
 
-func isIpAddress(host string) bool {
-	// Attempt to split the host and port, ignoring the error
-	hostWithoutPort, _, err := net.SplitHostPort(host)
-	if err != nil {
-		// If an error occurs, it might be because there's no port
-		// In that case, use the original host string
-		hostWithoutPort = host
-	}
-
-	// Attempt to parse the host as an IP address (both IPv4 and IPv6)
-	ip := net.ParseIP(hostWithoutPort)
-	// if host is not nil is an IP address else is not an IP address
-	return ip != nil
-}
-
 func getOriginFromHostInternal(host string) (string, string) {
 	origin := conf.GetConfigString("origin")
 	if origin != "" {
 		return origin, origin
 	}
 
+	// Security: the client-supplied `Host` header is untrusted input. It must
+	// never control the issuer / endpoint URLs that get baked into the signed
+	// `iss` claim of the tokens we mint (object/token_jwt.go generateJwtToken)
+	// or into the public OIDC discovery document (GetOidcDiscovery). Deriving
+	// the origin from a raw request `Host` lets an unauthenticated attacker set
+	// `Host: evil.attacker.com` and obtain a validly-signed token whose `iss`
+	// points at attacker infrastructure. We therefore require operators to pin a
+	// canonical `origin` (or `originFrontend`) in any non-dev deployment and
+	// fail closed rather than trust the Host header.
 	isDev := conf.GetConfigString("runmode") == "dev"
-	// "door.casdoor.com"
-	protocol := "https://"
-	if !strings.Contains(host, ".") {
-		// "localhost:8000" or "computer-name:80"
-		protocol = "http://"
-	} else if isIpAddress(host) {
-		// "192.168.0.10"
-		protocol = "http://"
+	if !isDev {
+		panic("origin config must be set outside of dev runmode: the OIDC/OAuth issuer must not be derived from the untrusted client Host header (set `origin` in conf/app.conf)")
 	}
 
-	if host == "localhost:8000" && isDev {
-		return fmt.Sprintf("%s%s", protocol, "localhost:7001"), fmt.Sprintf("%s%s", protocol, "localhost:8000")
-	} else {
-		return fmt.Sprintf("%s%s", protocol, host), fmt.Sprintf("%s%s", protocol, host)
+	// Dev-only convenience below: on a local `dev` run with no `origin`
+	// configured, auto-derive the origin from the fixed local host. This is
+	// gated to `runmode = dev` and only the well-known local `localhost:8000`
+	// host so an arbitrary attacker `Host` is never echoed back as the issuer.
+	if host != "localhost:8000" {
+		panic("origin config must be set: refusing to derive the OIDC/OAuth issuer from an untrusted client Host header (set `origin` in conf/app.conf)")
 	}
+
+	// "localhost:8000"
+	protocol := "http://"
+	return fmt.Sprintf("%s%s", protocol, "localhost:7001"), fmt.Sprintf("%s%s", protocol, "localhost:8000")
 }
 
 func getOriginFromHost(host string) (string, string) {
