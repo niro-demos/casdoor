@@ -55,35 +55,9 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 		return nil, err
 	}
 
-	var productInfos []ProductInfo
-	orderPrice := 0.0
-	for _, productInfo := range reqProductInfos {
-		product := productMap[productInfo.Name]
-
-		var productPrice float64
-		if product.IsRecharge {
-			productPrice = productInfo.Price
-			if productPrice <= 0 {
-				return nil, fmt.Errorf("the custom price should be greater than zero")
-			}
-		} else {
-			productPrice = product.Price
-		}
-		productInfos = append(productInfos, ProductInfo{
-			Owner:       owner,
-			Name:        product.Name,
-			DisplayName: product.DisplayName,
-			Image:       product.Image,
-			Detail:      product.Detail,
-			Price:       productPrice,
-			Currency:    product.Currency,
-			IsRecharge:  product.IsRecharge,
-			Quantity:    productInfo.Quantity,
-			PricingName: productInfo.PricingName,
-			PlanName:    productInfo.PlanName,
-		})
-
-		orderPrice += productPrice * float64(productInfo.Quantity)
+	productInfos, orderPrice, err := buildOrderProductInfos(owner, reqProductInfos, productMap)
+	if err != nil {
+		return nil, err
 	}
 
 	// Apply coupon discount if provided
@@ -100,6 +74,15 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 		if orderPrice < 0 {
 			orderPrice = 0
 		}
+	}
+
+	// Defense in depth: never persist a negative-priced order. A negative total can
+	// only result from invalid input (e.g. a negative quantity) and must never reach
+	// the payment path, where the Balance provider would turn a negative price into a
+	// positive wallet credit. (Zero is allowed: a fully-discounted coupon order above
+	// clamps orderPrice to 0 legitimately.)
+	if orderPrice < 0 {
+		return nil, fmt.Errorf("the order price cannot be negative")
 	}
 
 	orderName := fmt.Sprintf("order_%v", util.GenerateTimeId())
@@ -132,9 +115,63 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 	return order, nil
 }
 
+// buildOrderProductInfos builds the per-line-item ProductInfo slice and the total
+// order price for the requested products, validating each line item. It is the
+// single place that guards line-item quantity and price, so that no code path can
+// construct a negative-priced order.
+//
+// Root-cause fix: every line item must have a strictly positive quantity. Without
+// this check a negative quantity yields a negative orderPrice, which the Balance
+// payment provider later turns into a positive wallet credit (Transaction.Amount =
+// -payment.Price), letting any user mint unlimited balance.
+func buildOrderProductInfos(owner string, reqProductInfos []ProductInfo, productMap map[string]Product) ([]ProductInfo, float64, error) {
+	var productInfos []ProductInfo
+	orderPrice := 0.0
+	for _, productInfo := range reqProductInfos {
+		product := productMap[productInfo.Name]
+
+		if productInfo.Quantity <= 0 {
+			return nil, 0, fmt.Errorf("the quantity should be greater than zero")
+		}
+
+		var productPrice float64
+		if product.IsRecharge {
+			productPrice = productInfo.Price
+			if productPrice <= 0 {
+				return nil, 0, fmt.Errorf("the custom price should be greater than zero")
+			}
+		} else {
+			productPrice = product.Price
+		}
+		productInfos = append(productInfos, ProductInfo{
+			Owner:       owner,
+			Name:        product.Name,
+			DisplayName: product.DisplayName,
+			Image:       product.Image,
+			Detail:      product.Detail,
+			Price:       productPrice,
+			Currency:    product.Currency,
+			IsRecharge:  product.IsRecharge,
+			Quantity:    productInfo.Quantity,
+			PricingName: productInfo.PricingName,
+			PlanName:    productInfo.PlanName,
+		})
+
+		orderPrice += productPrice * float64(productInfo.Quantity)
+	}
+	return productInfos, orderPrice, nil
+}
+
 func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) (payment *Payment, attachInfo map[string]interface{}, err error) {
 	if order.State != "Created" {
 		return nil, nil, fmt.Errorf("cannot pay for order: %s, current state is %s", order.GetId(), order.State)
+	}
+	// Defense in depth: refuse to pay a negative-priced order. For the Balance
+	// provider the transaction amount is -order.Price, so a negative price would be
+	// booked as a positive wallet credit. A well-formed order can never be negative;
+	// reject it before any payment or transaction is created.
+	if order.Price < 0 {
+		return nil, nil, fmt.Errorf("cannot pay for order with a negative price: %s", order.GetId())
 	}
 	productNames := order.Products
 	products, err := getOrderProducts(order.Owner, productNames)
