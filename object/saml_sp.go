@@ -94,13 +94,29 @@ func ParseSamlResponse(samlResponse string, provider *Provider, host string) (*i
 	return userInfo, err
 }
 
+// validateSamlProvider checks that a provider resolved for a SAML login request
+// is usable: it must exist (GetProvider returns nil, nil for a well-formed but
+// nonexistent owner/name id) and its Category must be "SAML". Returning a clean
+// error here — instead of letting the caller dereference a nil provider — is what
+// keeps an unknown/unauthenticated provider id from panicking the request
+// goroutine and leaking a debug page.
+func validateSamlProvider(provider *Provider, id, lang string) error {
+	if provider == nil {
+		return fmt.Errorf(i18n.Translate(lang, "auth:The provider: %s does not exist"), id)
+	}
+	if provider.Category != "SAML" {
+		return fmt.Errorf(i18n.Translate(lang, "saml_sp:provider %s's category is not SAML"), provider.Name)
+	}
+	return nil
+}
+
 func GenerateSamlRequest(id, relayState, host, lang string) (auth string, method string, err error) {
 	provider, err := GetProvider(id)
 	if err != nil {
 		return "", "", err
 	}
-	if provider.Category != "SAML" {
-		return "", "", fmt.Errorf(i18n.Translate(lang, "saml_sp:provider %s's category is not SAML"), provider.Name)
+	if err := validateSamlProvider(provider, id, lang); err != nil {
+		return "", "", err
 	}
 
 	sp, err := buildSp(provider, "", host)
