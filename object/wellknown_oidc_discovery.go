@@ -239,6 +239,25 @@ func GetJsonWebKeySet(applicationName string) (jose.JSONWebKeySet, error) {
 	return jwks, nil
 }
 
+// buildAcctWebFinger builds the WebFinger response for an "acct:" resource.
+// It deliberately takes NO account-existence input: the OIDC issuer link it
+// returns is deployment-wide, not user-specific, so echoing the requested
+// subject and the issuer for any well-formed acct resource is safe and makes a
+// registered email indistinguishable from an unregistered one.
+func buildAcctWebFinger(resource string, rels []string, issuer string) WebFinger {
+	wf := WebFinger{}
+	wf.Subject = resource
+	for _, rel := range rels {
+		if rel == "http://openid.net/specs/connect/1.0/issuer" {
+			wf.Links = append(wf.Links, WebFingerLink{
+				Rel:  "http://openid.net/specs/connect/1.0/issuer",
+				Href: issuer,
+			})
+		}
+	}
+	return wf
+}
+
 func GetWebFinger(resource string, rels []string, host string, applicationName string) (WebFinger, error) {
 	wf := WebFinger{}
 
@@ -249,31 +268,17 @@ func GetWebFinger(resource string, rels []string, host string, applicationName s
 	}
 
 	resourceType := resourceSplit[0]
-	resourceValue := resourceSplit[1]
 
 	oidcDiscovery := GetOidcDiscovery(host, applicationName)
 
 	switch resourceType {
 	case "acct":
-		user, err := GetUserByEmailOnly(resourceValue)
-		if err != nil {
-			return wf, err
-		}
-
-		if user == nil {
-			return wf, fmt.Errorf("user not found")
-		}
-
-		wf.Subject = resource
-
-		for _, rel := range rels {
-			if rel == "http://openid.net/specs/connect/1.0/issuer" {
-				wf.Links = append(wf.Links, WebFingerLink{
-					Rel:  "http://openid.net/specs/connect/1.0/issuer",
-					Href: oidcDiscovery.Issuer,
-				})
-			}
-		}
+		// Do NOT look up whether an account exists for this email: the issuer
+		// link is deployment-wide, not user-specific, so a registered and an
+		// unregistered email must receive the identical response. Branching on
+		// existence here would leak account existence to anonymous callers
+		//.
+		wf = buildAcctWebFinger(resource, rels, oidcDiscovery.Issuer)
 	}
 
 	return wf, nil

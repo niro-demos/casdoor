@@ -17,7 +17,6 @@ package controllers
 import (
 	"bytes"
 	"encoding/base64"
-	"fmt"
 	"io"
 
 	"github.com/casdoor/casdoor/form"
@@ -143,7 +142,10 @@ func (c *ApiController) WebAuthnSigninBegin() {
 		}
 
 		if user == nil {
-			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(userOwner, userName)))
+			// Return the same message as an existing user with no registered
+			// credentials, so account existence cannot be inferred from the
+			// response.
+			c.ResponseError(object.WebAuthnSigninUserNotFoundMessage(c.GetAcceptLanguage()))
 			return
 		}
 		if len(user.WebauthnCredentials) == 0 {

@@ -17,7 +17,6 @@ package object
 import (
 	"fmt"
 	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/casdoor/casdoor/i18n"
@@ -71,12 +70,10 @@ func GetFailedSigninConfigByUser(user *User) (int, int, error) {
 }
 
 func recordSigninErrorInfo(user *User, lang string, options ...bool) error {
-	enableCaptcha := false
-	if len(options) > 0 {
-		enableCaptcha = options[0]
-	}
-
-	failedSigninLimit, failedSigninFrozenTime, errSignin := GetFailedSigninConfigByUser(user)
+	// options[0] (enableCaptcha) is accepted for signature compatibility with
+	// callers; it no longer alters the externally visible message, which is now
+	// uniform to prevent account enumeration.
+	failedSigninLimit, _, errSignin := GetFailedSigninConfigByUser(user)
 	if errSignin != nil {
 		return errSignin
 	}
@@ -95,13 +92,17 @@ func recordSigninErrorInfo(user *User, lang string, options ...bool) error {
 		return err
 	}
 
+	// The failed-attempt counter and lockout are still tracked internally above
+	// (SigninWrongTimes / LastSigninWrongTime are persisted), but the externally
+	// visible message is normalized to a single generic string. Exposing the
+	// remaining-chances count — or the distinct "frozen, wait N minutes" text —
+	// would reveal that the account exists (a nonexistent account has no counter
+	// and never freezes), giving an anonymous caller an enumeration oracle.
+	// The audit Reason still distinguishes the frozen state.
 	leftChances := failedSigninLimit - user.SigninWrongTimes
-	if leftChances == 0 && enableCaptcha {
+	if leftChances >= 0 {
 		return newSigninError(SigninReasonWrongPassword, i18n.Translate(lang, "check:password or code is incorrect"))
-	} else if leftChances >= 0 {
-		return newSigninError(SigninReasonWrongPassword, fmt.Sprintf(i18n.Translate(lang, "check:password or code is incorrect, you have %s remaining chances"), strconv.Itoa(leftChances)))
 	}
 
-	// don't show the chance error message if the user has no chance left
-	return newSigninError(SigninReasonAccountFrozen, fmt.Sprintf(i18n.Translate(lang, "check:You have entered the wrong password or code too many times, please wait for %d minutes and try again"), failedSigninFrozenTime))
+	return newSigninError(SigninReasonAccountFrozen, i18n.Translate(lang, "check:password or code is incorrect"))
 }

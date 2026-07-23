@@ -617,7 +617,10 @@ func (c *ApiController) VerifyCode() {
 		c.ResponseError(err.Error())
 		return
 	} else if user == nil {
-		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(authForm.Organization, authForm.Username)))
+		// Fail closed with a generic verification failure rather than revealing
+		// that the account does not exist, so an anonymous caller cannot use this
+		// endpoint to enumerate valid accounts.
+		c.ResponseError(object.VerifyCodeUserNotFoundMessage(c.GetAcceptLanguage()))
 		return
 	}
 
