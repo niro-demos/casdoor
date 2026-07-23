@@ -146,6 +146,21 @@ func GetMaskedSites(sites []*Site, node string) []*Site {
 	return sites
 }
 
+// bindKeyFromId overwrites the site's Owner/Name primary key with the pair
+// derived from the record `id` in the request URL.
+//
+// SECURITY: object updates persist via AllCols().Update(site), which writes
+// every column — including the Owner/Name primary key — from the
+// attacker-controllable request body. Update functions MUST call this before the
+// Update so a body carrying `"owner":"<other-org>"` cannot repoint (hijack) the
+// record into a foreign tenant. The `id` was already used to authorize the
+// request (its owner is checked against the caller's org), so binding the
+// persisted key to it keeps the authorization decision and the write on the same
+// tenant.
+func (site *Site) bindKeyFromId(id string) {
+	site.Owner, site.Name = util.GetOwnerAndNameFromIdNoCheck(id)
+}
+
 func UpdateSite(id string, site *Site) (bool, error) {
 	owner, name := util.GetOwnerAndNameFromIdNoCheck(id)
 	if s, err := getSite(owner, name); err != nil {
@@ -153,6 +168,11 @@ func UpdateSite(id string, site *Site) (bool, error) {
 	} else if s == nil {
 		return false, nil
 	}
+
+	// SECURITY: Owner and Name are the record's immutable primary key; bind them
+	// to the id-derived pair so the request body can never move the record across
+	// tenants (see bindKeyFromId).
+	site.bindKeyFromId(id)
 
 	site.UpdatedTime = util.GetCurrentTime()
 
@@ -176,6 +196,10 @@ func UpdateSiteNoRefresh(id string, site *Site) (bool, error) {
 	} else if s == nil {
 		return false, nil
 	}
+
+	// SECURITY: bind Owner/Name to the id-derived key so an attacker-supplied
+	// body owner cannot repoint the record into another tenant (see UpdateSite).
+	site.bindKeyFromId(id)
 
 	_, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(site)
 	if err != nil {

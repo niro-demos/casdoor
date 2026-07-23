@@ -71,6 +71,15 @@ func GetRule(id string) (*Rule, error) {
 	return getRule(owner, name)
 }
 
+// bindKeyFromId overwrites the rule's Owner/Name primary key with the pair
+// derived from the record `id` in the request URL. See Site.bindKeyFromId for
+// the full rationale: AllCols().Update(rule) persists every column from the
+// request body, so the id-derived key must be forced onto the struct to stop a
+// body `owner` from repointing the rule into a foreign tenant.
+func (rule *Rule) bindKeyFromId(id string) {
+	rule.Owner, rule.Name = util.GetOwnerAndNameFromIdNoCheck(id)
+}
+
 func UpdateRule(id string, rule *Rule) (bool, error) {
 	owner, name := util.GetOwnerAndNameFromIdNoCheck(id)
 	if s, err := getRule(owner, name); err != nil {
@@ -78,6 +87,12 @@ func UpdateRule(id string, rule *Rule) (bool, error) {
 	} else if s == nil {
 		return false, nil
 	}
+
+	// SECURITY: Owner and Name are the record's immutable primary key; bind them
+	// to the id-derived pair so an attacker-supplied body `owner` cannot repoint
+	// (hijack) this rule into a foreign organization (see bindKeyFromId).
+	rule.bindKeyFromId(id)
+
 	rule.UpdatedTime = util.GetCurrentTime()
 	_, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(rule)
 	if err != nil {

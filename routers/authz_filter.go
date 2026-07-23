@@ -159,13 +159,20 @@ func getObject(ctx *context.Context) (string, string, error) {
 				if err != nil {
 					return owner, name, err
 				}
-				if organization != "" {
-					return organization, name, nil
-				}
 
 				if strings.HasSuffix(ctx.Request.URL.Path, "organization") {
 					return name, name, nil
 				}
+
+				// SECURITY: when `id` is present it is the authoritative
+				// identifier of the object being read, so the owner MUST be
+				// derived from `id` and never overridden by the attacker-supplied
+				// `organization` query parameter. Overriding it here let an org
+				// admin pass the `subOwner == objOwner` scope check against their
+				// own org while the controller still fetched a different tenant's
+				// resource by `id` (cross-tenant read). The `organization`
+				// override only makes sense in the id-absent list fallback below,
+				// where there is no id to derive a true owner from.
 				return owner, name, nil
 			}
 		}
