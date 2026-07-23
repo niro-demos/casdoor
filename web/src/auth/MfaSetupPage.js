@@ -239,6 +239,7 @@ class MfaSetupPage extends React.Component {
               this.setState({
                 dest: res.dest,
                 countryCode: res.countryCode,
+                passcode: res.passcode,
                 current: this.state.current + 1,
               });
             }}
@@ -253,7 +254,7 @@ class MfaSetupPage extends React.Component {
       );
     case 2:
       return (
-        <MfaEnableForm user={this.getUser()} mfaType={this.state.mfaType} secret={this.state.mfaProps.secret} recoveryCodes={this.state.mfaProps.recoveryCodes} dest={this.state.dest} countryCode={this.state.countryCode}
+        <MfaEnableForm user={this.getUser()} mfaType={this.state.mfaType} secret={this.state.mfaProps.secret} recoveryCodes={this.state.mfaProps.recoveryCodes} dest={this.state.dest} countryCode={this.state.countryCode} passcode={this.state.passcode}
           onSuccess={() => {
             Setting.showMessage("success", i18next.t("general:Enabled successfully"));
             this.props.onfinish();

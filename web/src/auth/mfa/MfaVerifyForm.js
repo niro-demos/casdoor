@@ -45,6 +45,9 @@ export function MfaVerifyForm({mfaProps, application, user, onSuccess, onFail}) 
         if (res.status === "ok") {
           res.dest = dest;
           res.countryCode = countryCode;
+          // Carry the verified passcode forward so the enable step can prove
+          // possession of the authenticator to the server before activating it.
+          res.passcode = passcode;
           onSuccess(res);
         } else {
           onFail(res);

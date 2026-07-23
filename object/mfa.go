@@ -52,6 +52,22 @@ const (
 	RequiredMfa      = "RequiredMfa"
 )
 
+// RequireMfaSetupVerified is the proof-of-possession gate that MfaSetupEnable()
+// must clear before activating a second factor. It ensures a user cannot turn on
+// an MFA method (authenticator app, SMS, or email) without first proving control
+// of the authenticator / destination by supplying a correct one-time passcode
+// that validates against the pending secret. A missing passcode, or one that
+// does not validate, is rejected — the caller must not proceed to Enable().
+func RequireMfaSetupVerified(mfaUtil MfaInterface, passcode string) error {
+	if mfaUtil == nil {
+		return fmt.Errorf("invalid multi-factor authentication type")
+	}
+	if passcode == "" {
+		return fmt.Errorf("missing passcode: a one-time passcode is required to enable MFA")
+	}
+	return mfaUtil.SetupVerify(passcode)
+}
+
 func GetMfaUtil(mfaType string, config *MfaProps) MfaInterface {
 	switch mfaType {
 	case SmsType:

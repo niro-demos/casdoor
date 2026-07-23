@@ -51,6 +51,7 @@ export function MfaSetupEnable(values) {
   formData.append("recoveryCodes", values.recoveryCodes);
   formData.append("dest", values.dest);
   formData.append("countryCode", values.countryCode);
+  formData.append("passcode", values.passcode ?? "");
   return fetch(`${Setting.ServerUrl}/api/mfa/setup/enable`, {
     method: "POST",
     credentials: "include",

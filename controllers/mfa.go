@@ -185,6 +185,7 @@ func (c *ApiController) MfaSetupEnable() {
 	dest := c.Ctx.Request.Form.Get("dest")
 	countryCode := c.Ctx.Request.Form.Get("countryCode")
 	recoveryCodes := c.Ctx.Request.Form.Get("recoveryCodes")
+	passcode := c.Ctx.Request.Form.Get("passcode")
 
 	user, err := object.GetUser(util.GetId(owner, name))
 	if err != nil {
@@ -215,6 +216,8 @@ func (c *ApiController) MfaSetupEnable() {
 			}
 			user.Email = dest
 		}
+		// SetupVerify checks the emailed one-time code against this destination.
+		config.Secret = user.Email
 	} else if mfaType == object.SmsType {
 		if user.Phone == "" {
 			if dest == "" {
@@ -228,6 +231,9 @@ func (c *ApiController) MfaSetupEnable() {
 			}
 			user.CountryCode = countryCode
 		}
+		// SetupVerify checks the texted one-time code against this destination.
+		config.Secret = user.Phone
+		config.CountryCode = user.CountryCode
 	} else if mfaType == object.RadiusType {
 		if dest == "" {
 			c.ResponseError("RADIUS username is missing")
@@ -262,6 +268,24 @@ func (c *ApiController) MfaSetupEnable() {
 	if mfaUtil == nil {
 		c.ResponseError("Invalid multi-factor authentication type")
 		return
+	}
+
+	// Proof-of-possession gate. When a user enables a second factor on their OWN
+	// account, they must prove control of the authenticator / destination by
+	// supplying a correct one-time passcode that validates against the pending
+	// secret — this is the check MfaSetupVerify() performs and that
+	// MfaSetupEnable() was missing, which let a caller-chosen secret be planted
+	// as the account's trusted second factor with no code ever validated.
+	//
+	// An administrator provisioning MFA on behalf of a *different* user (already
+	// authorized as an admin for that account) is a separate, intentional flow
+	// and is not required to hold that user's one-time passcode.
+	if c.GetSessionUsername() == user.GetId() {
+		err = object.RequireMfaSetupVerified(mfaUtil, passcode)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
 	}
 
 	err = mfaUtil.Enable(user)
