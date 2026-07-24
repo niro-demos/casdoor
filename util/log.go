@@ -38,16 +38,15 @@ func getIpInfo(clientIp string) string {
 }
 
 func GetClientIpFromRequest(req *http.Request) string {
-	clientIp := req.Header.Get("x-forwarded-for")
-	if clientIp == "" {
-		ipPort := strings.Split(req.RemoteAddr, ":")
+	clientIp := req.RemoteAddr
+	if host, _, err := net.SplitHostPort(clientIp); err == nil {
+		clientIp = host
+	} else {
+		ipPort := strings.Split(clientIp, ":")
 		if len(ipPort) >= 1 && len(ipPort) <= 2 {
 			clientIp = ipPort[0]
 		} else if len(ipPort) > 2 {
-			idx := strings.LastIndex(req.RemoteAddr, ":")
-			clientIp = req.RemoteAddr[0:idx]
-			clientIp = strings.TrimLeft(clientIp, "[")
-			clientIp = strings.TrimRight(clientIp, "]")
+			clientIp = strings.Trim(clientIp, "[]")
 		}
 	}
 
