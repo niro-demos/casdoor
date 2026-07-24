@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/beego/beego/v2/server/web/context"
+	"github.com/casdoor/casdoor/conf"
 	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/idp"
 	"github.com/casdoor/casdoor/idv"
@@ -346,7 +347,15 @@ func GetPaymentProvider(p *Provider) (pp.PaymentProvider, error) {
 	}
 	typ := p.Type
 	if typ == "Dummy" {
-		pp, err := pp.NewDummyPaymentProvider()
+		// The Dummy provider performs no real payment and its notify callback
+		// cannot be tied to an external payment event, so it must never be usable
+		// in a real deployment: otherwise an anonymous caller could confirm any
+		// payment as Paid via /api/notify-payment. Refuse to construct it unless
+		// explicitly enabled for local/test use.
+		if !conf.GetConfigBool("enableDummyPaymentProvider") {
+			return nil, fmt.Errorf("the Dummy payment provider is disabled; set enableDummyPaymentProvider=true to use it in a non-production/test environment")
+		}
+		pp, err := pp.NewDummyPaymentProvider(p.ClientSecret)
 		if err != nil {
 			return nil, err
 		}

@@ -15,11 +15,19 @@
 package pp
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 )
 
-type DummyPaymentProvider struct{}
+type DummyPaymentProvider struct {
+	// ClientSecret is a shared secret used to authenticate notify callbacks.
+	// The Dummy provider is a test/mock provider; requiring a signature keeps an
+	// anonymous caller from forging a "Paid" transition (see Notify).
+	ClientSecret string
+}
 
 type DummyOrderInfo struct {
 	Price              float64 `json:"price"`
@@ -27,9 +35,24 @@ type DummyOrderInfo struct {
 	ProductDisplayName string  `json:"productDisplayName"`
 }
 
-func NewDummyPaymentProvider() (*DummyPaymentProvider, error) {
-	pp := &DummyPaymentProvider{}
+// DummyNotifyBody is the expected shape of a Dummy provider notify callback.
+// The signature is an HMAC-SHA256 (hex) of the OrderId keyed by ClientSecret,
+// so only a caller that holds the configured shared secret can prove the
+// callback is authentic.
+type DummyNotifyBody struct {
+	Signature string `json:"signature"`
+}
+
+func NewDummyPaymentProvider(clientSecret string) (*DummyPaymentProvider, error) {
+	pp := &DummyPaymentProvider{ClientSecret: clientSecret}
 	return pp, nil
+}
+
+// signOrderId computes the expected notify signature for an orderId.
+func signOrderId(secret string, orderId string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(orderId))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func (pp *DummyPaymentProvider) Pay(r *PayReq) (*PayResp, error) {
@@ -53,6 +76,27 @@ func (pp *DummyPaymentProvider) Pay(r *PayReq) (*PayResp, error) {
 }
 
 func (pp *DummyPaymentProvider) Notify(body []byte, orderId string) (*NotifyResult, error) {
+	// Authenticate the callback. The /api/notify-payment endpoint is anonymous by
+	// design (real provider webhooks arrive unauthenticated), so authenticity is
+	// delegated to the provider here. Without a shared secret the Dummy provider
+	// would accept ANY body and unconditionally mint a "Paid" transaction, letting
+	// an anonymous caller mark any tenant's payment as paid. Require an
+	// HMAC-SHA256 signature over the orderId keyed by the provider's ClientSecret,
+	// mirroring the signature checks in stripe.go / alipay.go.
+	if pp.ClientSecret == "" {
+		return nil, fmt.Errorf("dummy payment provider is not configured with a client secret; refusing to confirm payment")
+	}
+
+	var notifyBody DummyNotifyBody
+	if err := json.Unmarshal(body, &notifyBody); err != nil {
+		return nil, fmt.Errorf("failed to decode notify body: %w", err)
+	}
+
+	expected := signOrderId(pp.ClientSecret, orderId)
+	if notifyBody.Signature == "" || !hmac.Equal([]byte(notifyBody.Signature), []byte(expected)) {
+		return nil, fmt.Errorf("invalid or missing payment notification signature")
+	}
+
 	// Decode payment information from OrderId
 	var orderInfo DummyOrderInfo
 	if orderId != "" {
