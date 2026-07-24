@@ -203,6 +203,17 @@ func refineFullFilePath(fullFilePath string) (string, string) {
 }
 
 func (c *ApiController) GetProviderFromContext(category string) (*object.Provider, error) {
+	// A valid session is required on every branch below (explicit `provider`,
+	// `field=provider&value=...`, or a `fullFilePath`-derived `Direct` provider),
+	// not only on the empty-`provider` fallback path. Without this gate an
+	// anonymous caller could supply a provider name directly and reach the
+	// storage-write path in UploadResource (and the storage lookups in
+	// GetResource/DeleteResource) with no session at all.
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return nil, errors.New(c.T("general:Please login first"))
+	}
+
 	providerName := c.Ctx.Input.Query("provider")
 	if providerName == "" {
 		field := c.Ctx.Input.Query("field")
@@ -227,11 +238,6 @@ func (c *ApiController) GetProviderFromContext(category string) (*object.Provide
 		}
 
 		return provider, nil
-	}
-
-	userId, ok := c.RequireSignedIn()
-	if !ok {
-		return nil, errors.New(c.T("general:Please login first"))
 	}
 
 	application, err := object.GetApplicationByUserId(userId)
