@@ -102,7 +102,12 @@ func (c *ApiController) UpdateModel() {
 		return
 	}
 
-	c.Data["json"] = wrapErrorResponse(object.UpdateModelWithCheck(id, &model))
+	isGlobalAdmin, ok := c.requireCasbinConfigUpdateOwner(id, model.Owner)
+	if !ok {
+		return
+	}
+
+	c.Data["json"] = wrapErrorResponse(object.UpdateModelWithCheck(id, &model, isGlobalAdmin))
 	c.ServeJSON()
 }
 

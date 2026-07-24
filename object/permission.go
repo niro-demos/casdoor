@@ -15,6 +15,7 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -126,7 +127,7 @@ func checkPermissionValid(permission *Permission) error {
 	return nil
 }
 
-func UpdatePermission(id string, permission *Permission) (bool, error) {
+func UpdatePermission(id string, permission *Permission, isGlobalAdmin bool) (bool, error) {
 	err := checkPermissionValid(permission)
 	if err != nil {
 		return false, err
@@ -136,6 +137,9 @@ func UpdatePermission(id string, permission *Permission) (bool, error) {
 	oldPermission, err := getPermission(owner, name)
 	if oldPermission == nil {
 		return false, nil
+	}
+	if !isGlobalAdmin && owner != permission.Owner {
+		return false, errors.New("Unauthorized operation")
 	}
 
 	if permission.ResourceType == "Application" && permission.Model != "" {

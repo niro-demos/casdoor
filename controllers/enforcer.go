@@ -114,7 +114,12 @@ func (c *ApiController) UpdateEnforcer() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdateEnforcer(id, &enforcer))
+	isGlobalAdmin, ok := c.requireCasbinConfigUpdateOwner(id, enforcer.Owner)
+	if !ok {
+		return
+	}
+
+	c.Data["json"] = wrapActionResponse(object.UpdateEnforcer(id, &enforcer, isGlobalAdmin))
 	c.ServeJSON()
 }
 
