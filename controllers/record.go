@@ -37,42 +37,31 @@ func (c *ApiController) GetRecords() {
 	}
 
 	limit := c.Ctx.Input.Query("pageSize")
-	page := c.Ctx.Input.Query("p")
 	field := c.Ctx.Input.Query("field")
 	value := c.Ctx.Input.Query("value")
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 	organizationName := c.Ctx.Input.Query("organizationName")
 
-	if limit == "" || page == "" {
-		records, err := object.GetRecords()
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
-
-		c.ResponseOk(records)
-	} else {
-		limit := util.ParseInt(limit)
-		if c.IsGlobalAdmin() && organizationName != "" {
-			organization = organizationName
-		}
-		filterRecord := &object.Record{Organization: organization}
-		count, err := object.GetRecordCount(field, value, filterRecord)
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
-
-		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
-		records, err := object.GetPaginationRecords(paginator.Offset(), limit, field, value, sortField, sortOrder, filterRecord)
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
-
-		c.ResponseOk(records, paginator.Nums())
+	limitInt := util.ParseInt(limit)
+	if c.IsGlobalAdmin() && organizationName != "" {
+		organization = organizationName
 	}
+	filterRecord := &object.Record{Organization: organization}
+	count, err := object.GetRecordCount(field, value, filterRecord)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	paginator := pagination.NewPaginator(c.Ctx.Request, limitInt, count)
+	records, err := object.GetPaginationRecords(paginator.Offset(), paginator.PerPageNums, field, value, sortField, sortOrder, filterRecord)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(records, paginator.Nums())
 }
 
 // GetRecordsByFilter
