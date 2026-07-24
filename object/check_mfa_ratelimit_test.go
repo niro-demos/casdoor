@@ -85,6 +85,7 @@ func TestMfaPasscodeIsRateLimited(t *testing.T) {
 
 	var lastMsg string
 	lockedOutAt := 0
+	prevWrongTimes := 0
 	for i := 1; i <= 50; i++ {
 		out := evalMfaSigninAttempt(user, totpVerifyErr, testLimit, testFrozen, false, now, "en")
 		if out.err == nil {
@@ -97,10 +98,16 @@ func TestMfaPasscodeIsRateLimited(t *testing.T) {
 			lockedOutAt = i
 			break
 		}
-		// Before the limit the user must be warned with a decreasing remaining-chances count.
-		if !isRemainingChancesMessage(lastMsg) {
-			t.Fatalf("attempt %d: expected a 'remaining chances' warning before lockout, got %q", i, lastMsg)
+		// Before the limit each wrong guess must be COUNTED — the failure counter that
+		// drives the freeze must advance on every attempt. We assert the durable
+		// bookkeeping mechanism rather than the exact user-facing wording: a separate
+		// hardening (account-existence masking, TC-BC6577A4) may collapse the pre-lockout
+		// "remaining chances" detail into a generic message, but the rate-limit counter —
+		// and therefore the approaching lockout — must hold regardless of the message text.
+		if user.SigninWrongTimes <= prevWrongTimes {
+			t.Fatalf("attempt %d: wrong passcode was not counted toward lockout (SigninWrongTimes stuck at %d, msg %q)", i, user.SigninWrongTimes, lastMsg)
 		}
+		prevWrongTimes = user.SigninWrongTimes
 	}
 
 	if lockedOutAt == 0 {
