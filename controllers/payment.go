@@ -129,6 +129,31 @@ func (c *ApiController) GetUserPayments() {
 	c.ResponseOk(payments)
 }
 
+// isPaymentAccessForbidden is the single ownership/tenant authorization predicate
+// shared by every payment endpoint that operates on an already-loaded payment
+// (reads via GetPayment as well as state-changing calls such as InvoicePayment).
+// It returns true when the session principal is NOT allowed to act on the given
+// payment. Admins are always allowed; a non-admin is allowed only when the
+// payment's Owner (tenant) and User both match the session principal. Keeping the
+// decision in one pure, unit-tested function prevents the guard from being applied
+// to some endpoints but silently dropped from others.
+func isPaymentAccessForbidden(isAdmin bool, sessionUser string, payment *object.Payment) (bool, error) {
+	if isAdmin {
+		return false, nil
+	}
+
+	sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+	if err != nil {
+		return false, err
+	}
+
+	if payment != nil && (payment.Owner != sessionUserOwner || payment.User != sessionUserName) {
+		return true, nil
+	}
+
+	return false, nil
+}
+
 // GetPayment
 // @Title GetPayment
 // @Tag Payment API
@@ -146,13 +171,12 @@ func (c *ApiController) GetPayment() {
 	}
 
 	if !c.IsAdmin() {
-		sessionUser := c.GetSessionUsername()
-		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+		forbidden, err := isPaymentAccessForbidden(false, c.GetSessionUsername(), payment)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
-		if payment != nil && (payment.Owner != sessionUserOwner || payment.User != sessionUserName) {
+		if forbidden {
 			c.ResponseError("Forbidden")
 			return
 		}
@@ -259,9 +283,22 @@ func (c *ApiController) InvoicePayment() {
 		return
 	}
 
+	if !c.IsAdmin() {
+		forbidden, err := isPaymentAccessForbidden(false, c.GetSessionUsername(), payment)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if forbidden {
+			c.ResponseError("Forbidden")
+			return
+		}
+	}
+
 	invoiceUrl, err := object.InvoicePayment(payment)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
 	}
 	c.ResponseOk(invoiceUrl)
 }
