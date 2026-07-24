@@ -60,6 +60,14 @@ func (c *ApiController) GetResources() {
 
 	if isOrgAdmin {
 		user = ""
+	} else {
+		currentUser, ok := c.RequireSignedInUser()
+		if !ok {
+			return
+		}
+
+		owner = currentUser.Owner
+		user = currentUser.Name
 	}
 
 	if sortField == "Direct" {
