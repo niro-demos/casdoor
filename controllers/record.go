@@ -44,8 +44,18 @@ func (c *ApiController) GetRecords() {
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 	organizationName := c.Ctx.Input.Query("organizationName")
 
+	// A genuine global admin (RequireAdmin returns an empty organization for
+	// owner == "built-in") may widen the scope to another organization; every
+	// other caller stays pinned to their own organization on all code paths.
+	if c.IsGlobalAdmin() && organizationName != "" {
+		organization = organizationName
+	}
+
 	if limit == "" || page == "" {
-		records, err := object.GetRecords()
+		// Scope the unpaginated path exactly like the paginated one: an
+		// organization-scoped admin must never receive other tenants' records
+		// just because pagination params were omitted.
+		records, err := object.GetRecordsByOrganization(organization)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
@@ -54,9 +64,6 @@ func (c *ApiController) GetRecords() {
 		c.ResponseOk(records)
 	} else {
 		limit := util.ParseInt(limit)
-		if c.IsGlobalAdmin() && organizationName != "" {
-			organization = organizationName
-		}
 		filterRecord := &object.Record{Organization: organization}
 		count, err := object.GetRecordCount(field, value, filterRecord)
 		if err != nil {

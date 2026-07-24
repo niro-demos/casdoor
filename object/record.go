@@ -185,6 +185,27 @@ func GetRecords() ([]*Record, error) {
 	return records, nil
 }
 
+// GetRecordsByOrganization returns audit-log records scoped to a single
+// organization. An empty organization is the "all tenants" sentinel and must
+// only ever be passed by a genuine global admin (owner == "built-in"); any
+// organization-scoped caller must pass their own organization so records from
+// other tenants are never returned.
+func GetRecordsByOrganization(organization string) ([]*Record, error) {
+	records := []*Record{}
+
+	session := ormer.Engine.Desc("id")
+	if organization != "" {
+		session = session.And("organization = ?", organization)
+	}
+
+	err := session.Find(&records)
+	if err != nil {
+		return records, err
+	}
+
+	return records, nil
+}
+
 func GetPaginationRecords(offset, limit int, field, value, sortField, sortOrder string, filterRecord *Record) ([]*Record, error) {
 	records := []*Record{}
 
@@ -366,3 +387,4 @@ func SendWebhooks(record *Record) error {
 	}
 	return nil
 }
+
