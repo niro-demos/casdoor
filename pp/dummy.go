@@ -15,6 +15,8 @@
 package pp
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 )
@@ -25,6 +27,11 @@ type DummyOrderInfo struct {
 	Price              float64 `json:"price"`
 	Currency           string  `json:"currency"`
 	ProductDisplayName string  `json:"productDisplayName"`
+	NotifyToken        string  `json:"notifyToken"`
+}
+
+type DummyNotifyReq struct {
+	NotifyToken string `json:"notifyToken"`
 }
 
 func NewDummyPaymentProvider() (*DummyPaymentProvider, error) {
@@ -33,6 +40,11 @@ func NewDummyPaymentProvider() (*DummyPaymentProvider, error) {
 }
 
 func (pp *DummyPaymentProvider) Pay(r *PayReq) (*PayResp, error) {
+	notifyToken, err := generateDummyNotifyToken()
+	if err != nil {
+		return nil, err
+	}
+
 	// Encode payment information in OrderId for later retrieval in Notify.
 	// Note: This is a test/mock provider and the OrderId is only used internally for testing.
 	// Real payment providers would receive this information from their external payment gateway.
@@ -40,6 +52,7 @@ func (pp *DummyPaymentProvider) Pay(r *PayReq) (*PayResp, error) {
 		Price:              r.Price,
 		Currency:           r.Currency,
 		ProductDisplayName: "",
+		NotifyToken:        notifyToken,
 	}
 	orderInfoBytes, err := json.Marshal(orderInfo)
 	if err != nil {
@@ -55,11 +68,23 @@ func (pp *DummyPaymentProvider) Pay(r *PayReq) (*PayResp, error) {
 func (pp *DummyPaymentProvider) Notify(body []byte, orderId string) (*NotifyResult, error) {
 	// Decode payment information from OrderId
 	var orderInfo DummyOrderInfo
-	if orderId != "" {
-		err := json.Unmarshal([]byte(orderId), &orderInfo)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode order info: %w", err)
-		}
+	if orderId == "" {
+		return nil, fmt.Errorf("missing dummy payment order info")
+	}
+	err := json.Unmarshal([]byte(orderId), &orderInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode order info: %w", err)
+	}
+	if orderInfo.NotifyToken == "" {
+		return nil, fmt.Errorf("missing dummy payment notify token")
+	}
+
+	var notifyReq DummyNotifyReq
+	if err := json.Unmarshal(body, &notifyReq); err != nil {
+		return nil, fmt.Errorf("failed to decode dummy payment notification: %w", err)
+	}
+	if notifyReq.NotifyToken != orderInfo.NotifyToken {
+		return nil, fmt.Errorf("invalid dummy payment notification")
 	}
 
 	return &NotifyResult{
@@ -68,6 +93,14 @@ func (pp *DummyPaymentProvider) Notify(body []byte, orderId string) (*NotifyResu
 		Currency:           orderInfo.Currency,
 		ProductDisplayName: orderInfo.ProductDisplayName,
 	}, nil
+}
+
+func generateDummyNotifyToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate dummy payment notify token: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func (pp *DummyPaymentProvider) GetInvoice(paymentName string, personName string, personIdCard string, personEmail string, personPhone string, invoiceType string, invoiceTitle string, invoiceTaxId string) (string, error) {
