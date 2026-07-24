@@ -83,6 +83,19 @@ func (c *ApiController) GetPlan() {
 		return
 	}
 
+	if plan != nil && !c.IsAdmin() {
+		sessionUser := c.GetSessionUsername()
+		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if !object.CanReadOwnedRecord(false, sessionUserOwner, sessionUserName, plan.Owner, "") {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	}
+
 	if plan != nil && includeOption {
 		options, err := object.GetPermissionsByRole(plan.Role)
 		if err != nil {

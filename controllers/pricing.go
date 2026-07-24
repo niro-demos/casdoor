@@ -81,6 +81,19 @@ func (c *ApiController) GetPricing() {
 		return
 	}
 
+	if pricing != nil && !c.IsAdmin() {
+		sessionUser := c.GetSessionUsername()
+		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if !object.CanReadOwnedRecord(false, sessionUserOwner, sessionUserName, pricing.Owner, "") {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	}
+
 	c.ResponseOk(pricing)
 }
 
