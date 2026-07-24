@@ -111,6 +111,20 @@ func (c *ApiController) GetSubscription() {
 		return
 	}
 
+	if subscription == nil {
+		c.ResponseOk(nil)
+		return
+	}
+
+	if !c.IsAdmin() {
+		user := c.GetSessionUsername()
+		userOwner, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+		if userErr != nil || userOwner != subscription.Owner || userName != subscription.User {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	}
+
 	c.ResponseOk(subscription)
 }
 
