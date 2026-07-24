@@ -28,6 +28,9 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 	if len(reqProductInfos) == 0 {
 		return nil, fmt.Errorf("order has no products")
 	}
+	if err := validateOrderProductInfos(reqProductInfos); err != nil {
+		return nil, err
+	}
 
 	productNames := make([]string, 0, len(reqProductInfos))
 	for _, reqInfo := range reqProductInfos {
@@ -136,6 +139,13 @@ func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) 
 	if order.State != "Created" {
 		return nil, nil, fmt.Errorf("cannot pay for order: %s, current state is %s", order.GetId(), order.State)
 	}
+	if err := validateOrderProductInfos(order.ProductInfos); err != nil {
+		return nil, nil, err
+	}
+	if order.Price < 0 {
+		return nil, nil, fmt.Errorf("order price cannot be negative")
+	}
+
 	productNames := order.Products
 	products, err := getOrderProducts(order.Owner, productNames)
 	if err != nil {
@@ -398,6 +408,20 @@ func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) 
 	}
 
 	return payment, payResp.AttachInfo, nil
+}
+
+func validateOrderProductInfos(productInfos []ProductInfo) error {
+	if len(productInfos) == 0 {
+		return fmt.Errorf("order has no products")
+	}
+
+	for _, productInfo := range productInfos {
+		if productInfo.Quantity <= 0 {
+			return fmt.Errorf("product quantity should be greater than zero")
+		}
+	}
+
+	return nil
 }
 
 func CancelOrder(order *Order) (bool, error) {
