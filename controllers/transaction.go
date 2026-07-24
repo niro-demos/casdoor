@@ -159,6 +159,23 @@ func (c *ApiController) UpdateTransaction() {
 	c.ServeJSON()
 }
 
+// canCreditWalletBalance reports whether a caller with the given global-admin status is
+// permitted to add a transaction that directly credits a user's spendable wallet balance.
+//
+// A transaction with tag == "User" flows through object.updateBalanceForTransaction ->
+// object.UpdateUserBalance and increases the named user's balance with no payment. Such a
+// credit must only be reachable by a GLOBAL admin (built-in org) acting as the server, or
+// by the internal payment-provider callback path (object.AddInternalPaymentTransaction,
+// which validates a real payment first). A mere org-admin (User.IsAdmin in a non-built-in
+// org) must not be able to self-credit balance through the generic add-transaction
+// endpoint. Non-"User" tags do not credit an individual wallet and are unaffected.
+func canCreditWalletBalance(tag string, isGlobalAdmin bool) bool {
+	if tag == "User" {
+		return isGlobalAdmin
+	}
+	return true
+}
+
 // AddTransaction
 // @Title AddTransaction
 // @Tag Transaction API
@@ -172,6 +189,15 @@ func (c *ApiController) AddTransaction() {
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &transaction)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+
+	// A tag == "User" transaction directly credits a user's spendable wallet balance with
+	// no payment. Restrict that to a global admin acting as the server; the verified
+	// payment-provider callback path uses object.AddInternalPaymentTransaction instead.
+	// An org-admin (User.IsAdmin in a non-built-in org) must not self-credit balance here.
+	if !canCreditWalletBalance(transaction.Tag, c.IsGlobalAdmin()) {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return
 	}
 
