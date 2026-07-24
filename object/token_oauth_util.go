@@ -437,6 +437,20 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		}, nil
 	}
 
+	// Ensure the refresh token was actually issued to the calling
+	// application/tenant. Without this check, any OAuth client authenticating
+	// with its own valid client_id/client_secret could redeem a refresh token
+	// issued to a different tenant's application and mint a fresh token set in
+	// its own tenant (cross-tenant token grafting), and probe for usernames in
+	// other tenants. The authorization-code path enforces the same binding (see
+	// GetAuthorizationCodeToken: `application.Name != token.Application`).
+	if token.Application != application.Name || token.Organization != application.Organization {
+		return &TokenError{
+			Error:            InvalidGrant,
+			ErrorDescription: "the refresh token was issued to a different application/tenant",
+		}, nil
+	}
+
 	cert, err := getCertByApplication(application)
 	if err != nil {
 		return nil, err
