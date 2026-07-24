@@ -80,6 +80,14 @@ func (c *ApiController) MfaSetupInitiate() {
 	mfaProps.RecoveryCodes = []string{recoveryCode}
 	mfaProps.MfaRememberInHours = organization.MfaRememberInHours
 
+	// Bind proof of possession to the session: remember the server-generated
+	// TOTP secret so setup/verify checks a passcode against a secret the server
+	// chose, and clear any previously verified state from an earlier attempt.
+	if mfaType == object.TotpType {
+		c.SetSession(object.MfaTotpSecretSession, mfaProps.Secret)
+		c.DelSession(object.MfaTotpVerifiedSession)
+	}
+
 	resp := mfaProps
 	c.ResponseOk(resp)
 }
@@ -108,11 +116,15 @@ func (c *ApiController) MfaSetupVerify() {
 		MfaType: mfaType,
 	}
 	if mfaType == object.TotpType {
-		if secret == "" {
+		// Verify the passcode against the server-generated secret bound to this
+		// session by setup/initiate, not against a secret the client supplies —
+		// so a passing verify actually proves possession of that pending secret.
+		pendingSecret := c.getMfaTotpPendingSecret()
+		if pendingSecret == "" {
 			c.ResponseError("totp secret is missing")
 			return
 		}
-		config.Secret = secret
+		config.Secret = pendingSecret
 	} else if mfaType == object.SmsType {
 		if dest == "" {
 			c.ResponseError("destination is missing")
@@ -164,6 +176,11 @@ func (c *ApiController) MfaSetupVerify() {
 	if err != nil {
 		c.ResponseError(err.Error())
 	} else {
+		// Record that possession of this session's pending TOTP secret has been
+		// proven, so setup/enable is allowed to persist exactly that secret.
+		if mfaType == object.TotpType {
+			c.SetSession(object.MfaTotpVerifiedSession, config.Secret)
+		}
 		c.ResponseOk(http.StatusText(http.StatusOK))
 	}
 }
@@ -202,11 +219,17 @@ func (c *ApiController) MfaSetupEnable() {
 	}
 
 	if mfaType == object.TotpType {
-		if secret == "" {
-			c.ResponseError("totp secret is missing")
+		// Proof-of-possession gate: enable persists ONLY the secret whose
+		// possession was proven by a successful setup/verify in this session —
+		// never a secret carried on the enable request. This ties the
+		// initiate -> verify -> enable steps together so an attacker acting with
+		// a victim's session cannot plant a TOTP factor they alone control.
+		verifiedSecret, err := object.ResolveMfaEnableSecret(mfaType, c.getMfaTotpVerifiedSecret(), secret)
+		if err != nil {
+			c.ResponseError(err.Error())
 			return
 		}
-		config.Secret = secret
+		config.Secret = verifiedSecret
 	} else if mfaType == object.EmailType {
 		if user.Email == "" {
 			if dest == "" {
@@ -268,6 +291,13 @@ func (c *ApiController) MfaSetupEnable() {
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
+	}
+
+	// Consume the one-time proof-of-possession state so it cannot be replayed to
+	// enable a second time without going through the handshake again.
+	if mfaType == object.TotpType {
+		c.DelSession(object.MfaTotpSecretSession)
+		c.DelSession(object.MfaTotpVerifiedSession)
 	}
 
 	c.ResponseOk(http.StatusText(http.StatusOK))

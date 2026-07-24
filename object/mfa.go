@@ -50,7 +50,42 @@ const (
 	MfaSessionUserId = "MfaSessionUserId"
 	NextMfa          = "NextMfa"
 	RequiredMfa      = "RequiredMfa"
+
+	// MfaTotpSecretSession holds the server-generated pending TOTP secret from
+	// the setup/initiate step, so setup/verify validates a passcode against a
+	// secret the server chose rather than one the client supplies at verify time.
+	MfaTotpSecretSession = "MfaTotpSecretSession"
+	// MfaTotpVerifiedSession holds the TOTP secret whose possession the caller
+	// has PROVEN in this session by passing setup/verify. setup/enable persists
+	// only this value; if it is empty, enable must be refused.
+	MfaTotpVerifiedSession = "MfaTotpVerifiedSession"
 )
+
+// ResolveMfaEnableSecret is the single proof-of-possession gate the MFA enable
+// handler routes through for the authenticator-app (TOTP) factor.
+//
+// The enable step must never trust a secret carried on the enable request:
+// doing so lets anyone acting with a victim's session (a hijacked session or a
+// forged cross-site POST) silently plant a TOTP factor whose secret only they
+// hold, with no proof the caller ever controlled it. Instead, enable persists
+// the secret whose possession was already proven in THIS session by a
+// successful setup/verify — recorded in the session as verifiedSecret.
+//
+// It returns the secret to persist, or an error when no verified secret exists
+// for the session (proof of possession is missing). For non-TOTP factors the
+// verify step already binds possession to the destination/provider, so this
+// gate does not apply and the requestSecret is passed through unchanged.
+func ResolveMfaEnableSecret(mfaType string, verifiedSecret string, requestSecret string) (string, error) {
+	if mfaType != TotpType {
+		return requestSecret, nil
+	}
+
+	if verifiedSecret == "" {
+		return "", fmt.Errorf("no verified MFA secret found for this session; complete the verification step before enabling")
+	}
+
+	return verifiedSecret, nil
+}
 
 func GetMfaUtil(mfaType string, config *MfaProps) MfaInterface {
 	switch mfaType {

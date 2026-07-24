@@ -253,6 +253,33 @@ func (c *ApiController) getMfaUserSession() string {
 	return userId.(string)
 }
 
+// getMfaTotpPendingSecret returns the server-generated TOTP secret bound to this
+// session by MfaSetupInitiate, against which MfaSetupVerify checks a passcode.
+func (c *ApiController) getMfaTotpPendingSecret() string {
+	secret := c.GetSession(object.MfaTotpSecretSession)
+	if secret == nil {
+		return ""
+	}
+	if s, ok := secret.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// getMfaTotpVerifiedSecret returns the TOTP secret whose possession the caller
+// proved in this session via a successful MfaSetupVerify. Empty means no proof
+// of possession exists, so MfaSetupEnable must refuse to activate the factor.
+func (c *ApiController) getMfaTotpVerifiedSecret() string {
+	secret := c.GetSession(object.MfaTotpVerifiedSession)
+	if secret == nil {
+		return ""
+	}
+	if s, ok := secret.(string); ok {
+		return s
+	}
+	return ""
+}
+
 func (c *ApiController) setExpireForSession(cookieExpireInHours int64) {
 	timestamp := time.Now().Unix()
 	if cookieExpireInHours == 0 {
