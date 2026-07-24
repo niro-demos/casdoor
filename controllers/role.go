@@ -93,6 +93,11 @@ func (c *ApiController) GetRole() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-role [post]
 func (c *ApiController) UpdateRole() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	var role object.Role
@@ -114,6 +119,11 @@ func (c *ApiController) UpdateRole() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /add-role [post]
 func (c *ApiController) AddRole() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	var role object.Role
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &role)
 	if err != nil {
@@ -133,6 +143,11 @@ func (c *ApiController) AddRole() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /delete-role [post]
 func (c *ApiController) DeleteRole() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	var role object.Role
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &role)
 	if err != nil {

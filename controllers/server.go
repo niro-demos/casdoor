@@ -98,6 +98,11 @@ func (c *ApiController) GetServer() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-server [post]
 func (c *ApiController) UpdateServer() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	var server object.Server
@@ -121,6 +126,11 @@ func (c *ApiController) UpdateServer() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /sync-mcp-tool [post]
 func (c *ApiController) SyncMcpTool() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 	isCleared := c.Ctx.Input.Query("isCleared") == "1"
 
@@ -143,6 +153,11 @@ func (c *ApiController) SyncMcpTool() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /add-server [post]
 func (c *ApiController) AddServer() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	var server object.Server
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &server)
 	if err != nil {
@@ -162,6 +177,11 @@ func (c *ApiController) AddServer() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /delete-server [post]
 func (c *ApiController) DeleteServer() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	var server object.Server
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &server)
 	if err != nil {

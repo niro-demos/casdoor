@@ -132,6 +132,11 @@ func (c *ApiController) GetPermission() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-permission [post]
 func (c *ApiController) UpdatePermission() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	var permission object.Permission
@@ -153,6 +158,11 @@ func (c *ApiController) UpdatePermission() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /add-permission [post]
 func (c *ApiController) AddPermission() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	var permission object.Permission
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &permission)
 	if err != nil {
@@ -172,6 +182,11 @@ func (c *ApiController) AddPermission() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /delete-permission [post]
 func (c *ApiController) DeletePermission() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("general:Unauthorized operation"))
+		return
+	}
+
 	var permission object.Permission
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &permission)
 	if err != nil {

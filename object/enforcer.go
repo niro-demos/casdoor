@@ -176,8 +176,27 @@ func (enforcer *Enforcer) InitEnforcer() error {
 		return err
 	}
 
+	registerBuiltInApiFunctions(casbinEnforcer)
+
 	enforcer.Enforcer = casbinEnforcer
 	return nil
+}
+
+// registerBuiltInApiFunctions wires the custom matcher functions referenced by
+// BuiltInApiModelText into a Casbin enforcer. Registering unconditionally is
+// safe: an enforcer whose model does not use these functions simply never
+// evaluates them.
+func registerBuiltInApiFunctions(e *casbin.Enforcer) {
+	e.AddFunction("isSelfServiceApiPath", func(args ...interface{}) (interface{}, error) {
+		if len(args) != 1 {
+			return false, nil
+		}
+		urlPath, ok := args[0].(string)
+		if !ok {
+			return false, nil
+		}
+		return IsSelfServiceApiPath(urlPath), nil
+	})
 }
 
 func GetInitializedEnforcer(enforcerId string) (*Enforcer, error) {

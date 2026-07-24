@@ -18,6 +18,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/casdoor/casdoor/conf"
 	"github.com/casdoor/casdoor/util"
@@ -409,17 +410,19 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act`,
 	}
 }
 
-func initBuiltInApiModel() bool {
-	model, err := GetModel("built-in/api-model-built-in")
-	if err != nil {
-		panic(err)
-	}
-
-	if model != nil {
-		return true
-	}
-
-	modelText := `[request_definition]
+// BuiltInApiModelText is the Casbin model that drives the built-in API
+// authorization enforcer. It is the single source of truth for the matcher so
+// that authorization behavior can be exercised directly in tests.
+//
+// The trailing clause on the matcher is a *self-service* fallback: it lets a
+// subject operate on the object whose owner/name equals the subject's own
+// owner/name (e.g. a user editing her own profile via /api/update-user, where
+// objName == the caller's username). That clause is deliberately scoped so it
+// never authorizes admin-managed object types whose primary key is (owner,
+// name): a non-admin must not be able to satisfy it merely by naming a new
+// Role, Permission, Server, Model, Adapter, Enforcer, etc. after herself.
+// The isSelfServiceApiPath matcher function gives it that scoping.
+const BuiltInApiModelText = `[request_definition]
 r = subOwner, subName, method, urlPath, objOwner, objName
 
 [policy_definition]
@@ -438,14 +441,60 @@ m = (r.subOwner == p.subOwner || p.subOwner == "*") && \
     (keyMatch2(r.urlPath, p.urlPath) || p.urlPath == "*") && \
     (r.objOwner == p.objOwner || p.objOwner == "*") && \
     (r.objName == p.objName || p.objName == "*") || \
-    (r.subOwner == r.objOwner && r.subName == r.objName)`
+    (r.subOwner == r.objOwner && r.subName == r.objName && isSelfServiceApiPath(r.urlPath))`
+
+// selfServiceExcludedApiObjects lists the object types that the self-service
+// matcher fallback (r.subOwner == r.objOwner && r.subName == r.objName) must
+// never authorize. Each of these object types has a primary key of
+// (owner, name); because /api/{add,update,delete}-<type> takes the object
+// owner/name straight from the attacker-controlled request body (see
+// routers/authz_filter.go getObject), a non-admin could otherwise satisfy the
+// self-service clause simply by naming a new authorization/admin-managed object
+// after her own username. These are authorization-management and
+// admin-only-infrastructure object types that a plain member must never create,
+// modify, or delete; they are guarded here (in the seeded model) and, as
+// defense-in-depth, by explicit c.IsAdmin() checks in their controllers.
+var selfServiceExcludedApiObjects = []string{
+	"role",
+	"permission",
+	"server",
+	"mcp-tool", // /api/sync-mcp-tool is a Server mutation
+	"model",
+	"adapter",
+	"enforcer",
+	"policy",
+}
+
+// IsSelfServiceApiPath reports whether the self-service matcher fallback may
+// apply to the given API url path. It returns false for the admin-managed
+// object types in selfServiceExcludedApiObjects (e.g. /api/add-role,
+// /api/update-permission, /api/delete-server), so that naming such an object
+// after one's own username can never self-authorize the request.
+func IsSelfServiceApiPath(urlPath string) bool {
+	for _, obj := range selfServiceExcludedApiObjects {
+		if strings.HasSuffix(urlPath, "-"+obj) || strings.HasSuffix(urlPath, "-"+obj+"s") {
+			return false
+		}
+	}
+	return true
+}
+
+func initBuiltInApiModel() bool {
+	model, err := GetModel("built-in/api-model-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if model != nil {
+		return true
+	}
 
 	model = &Model{
 		Owner:       "built-in",
 		Name:        "api-model-built-in",
 		CreatedTime: util.GetCurrentTime(),
 		DisplayName: "API Model",
-		ModelText:   modelText,
+		ModelText:   BuiltInApiModelText,
 	}
 	_, err = AddModel(model)
 	if err != nil {
