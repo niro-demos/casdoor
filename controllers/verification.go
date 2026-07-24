@@ -36,6 +36,17 @@ const (
 	MfaAuthVerification  = "mfaAuth"
 )
 
+// forgetCheckUserResolved reports whether a user resolved from the
+// forgot-password "checkUser" field is a real, usable account (present and not
+// soft-deleted). It exists so the forgot-password flow can decide existence
+// without emitting a distinct, enumerable "user does not exist" message to an
+// unauthenticated caller: a false result must be handled by continuing with a
+// nil user (indistinguishable downstream), never by a fast-fail that reveals
+// non-existence. See TC-BC6577A4.
+func forgetCheckUserResolved(user *object.User) bool {
+	return user != nil && !user.IsDeleted
+}
+
 // GetVerifications
 // @Title GetVerifications
 // @Tag Verification API
@@ -208,12 +219,19 @@ func (c *ApiController) SendVerificationCode() {
 			c.ResponseError(err.Error())
 			return
 		}
-		if user == nil || user.IsDeleted {
-			c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
-			return
+		// Account-existence enumeration guard (TC-BC6577A4): do NOT short-circuit
+		// with a distinct "user does not exist" message when the checkUser is
+		// missing/deleted. That earlier fast-fail let an unauthenticated caller
+		// distinguish existing from non-existing accounts (an existing account
+		// proceeded to the dest/email validation, a missing one stopped here with
+		// a different string). Instead we treat a missing user like a resolved-nil
+		// user and continue; the identical downstream dest validation and the
+		// masked user-by-dest lookup below then apply uniformly to both cases.
+		if !forgetCheckUserResolved(user) {
+			user = nil
 		}
 
-		if user.IsForbidden {
+		if user != nil && user.IsForbidden {
 			c.ResponseError(c.T("check:The user is forbidden to sign in, please contact the administrator"))
 			return
 		}

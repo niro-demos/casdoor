@@ -68,6 +68,22 @@ func GetConfigBool(key string) bool {
 	}
 }
 
+// GetConfigBoolDefault returns the configured bool for key, or defaultValue when
+// the key is absent/empty. Unlike GetConfigBool it distinguishes "unset" from an
+// explicit "false", so a security-relevant default (e.g. enableErrorMask) can be
+// on out of the box while still allowing an operator to opt out with "false".
+func GetConfigBoolDefault(key string, defaultValue bool) bool {
+	value := GetConfigString(key)
+	switch value {
+	case "true":
+		return true
+	case "false":
+		return false
+	default:
+		return defaultValue
+	}
+}
+
 func GetConfigInt64(key string) (int64, error) {
 	value := GetConfigString(key)
 	num, err := strconv.ParseInt(value, 10, 64)

@@ -23,7 +23,13 @@ import (
 	"github.com/casdoor/casdoor/util"
 )
 
-var enableErrorMask = false
+// defaultEnableErrorMask is the value used when the "enableErrorMask" config key
+// is absent. The mask collapses account-existence-revealing sign-in and
+// forgot-password errors into one generic message, so it defaults to on to keep
+// the unauthenticated enumeration oracle closed on a fresh deployment.
+const defaultEnableErrorMask = true
+
+var enableErrorMask = defaultEnableErrorMask
 
 //go:embed locales/*/data.json
 var f embed.FS
@@ -31,7 +37,7 @@ var f embed.FS
 var langMap = make(map[string]map[string]map[string]string) // for example : langMap[en][account][Invalid information] = Invalid information
 
 func init() {
-	enableErrorMask = conf.GetConfigBool("enableErrorMask")
+	enableErrorMask = conf.GetConfigBoolDefault("enableErrorMask", defaultEnableErrorMask)
 }
 
 func getI18nFilePath(category string, language string) string {
@@ -86,9 +92,21 @@ func applyData(data1 *I18nData, data2 *I18nData) {
 func Translate(language string, errorText string) string {
 	modified := false
 	if enableErrorMask {
-		if errorText == "general:The user: %s doesn't exist" ||
-			errorText == "check:password or code is incorrect, you have %s remaining chances" {
+		switch errorText {
+		// Account-existence enumeration guard (TC-BC6577A4): collapse the
+		// sign-in "user does not exist" and "wrong password/code" strings into a
+		// single generic message so an unauthenticated caller cannot tell an
+		// existing account from a non-existing one on /api/login. These two keys
+		// are emitted through fmt.Sprintf with a trailing argument, so the "%.s"
+		// suffix below absorbs that argument.
+		case "general:The user: %s doesn't exist",
+			"check:password or code is incorrect, you have %s remaining chances":
 			modified = true
+			errorText = "check:password or code is incorrect"
+		// Same guard for the forgot-password flow's "user does not exist" string
+		// (/api/send-verification-code). It is emitted without fmt.Sprintf, so it
+		// must NOT get the "%.s" suffix — masking to the generic message is enough.
+		case "verification:the user does not exist, please sign up first":
 			errorText = "check:password or code is incorrect"
 		}
 	}
