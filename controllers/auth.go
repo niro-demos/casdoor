@@ -1213,7 +1213,14 @@ func (c *ApiController) Login() {
 			}
 
 			if !passed {
-				err = mfaUtil.Verify(authForm.Passcode)
+				// Rate-limit wrong second-factor guesses with the same per-user
+				// failed-attempt bookkeeping the password step uses (freeze
+				// pre-check, "remaining chances" warning, then timed lockout),
+				// keyed on the session-bound user; reset on success. Without this,
+				// the 6-digit TOTP code could be brute-forced with unlimited guesses.
+				err = object.CheckMfaSigninErrorTimes(user, func() error {
+					return mfaUtil.Verify(authForm.Passcode)
+				}, c.GetAcceptLanguage())
 				if err != nil {
 					c.Ctx.Input.SetParam("recordDetail", object.SigninReasonMfaFailed)
 					c.ResponseError(err.Error())
