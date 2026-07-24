@@ -45,7 +45,7 @@ func (c *ApiController) GetCerts() {
 			return
 		}
 
-		if !c.IsAdmin() {
+		if !c.IsGlobalAdmin() {
 			certs, err = object.GetMaskedCerts(certs, nil)
 			if err != nil {
 				c.ResponseError(err.Error())
@@ -69,7 +69,7 @@ func (c *ApiController) GetCerts() {
 			return
 		}
 
-		if !c.IsAdmin() {
+		if !c.IsGlobalAdmin() {
 			certs, err = object.GetMaskedCerts(certs, err)
 			if err != nil {
 				c.ResponseError(err.Error())
@@ -102,7 +102,7 @@ func (c *ApiController) GetGlobalCerts() {
 			return
 		}
 
-		if !c.IsAdmin() {
+		if !c.IsGlobalAdmin() {
 			certs, err = object.GetMaskedCerts(certs, nil)
 			if err != nil {
 				c.ResponseError(err.Error())
@@ -126,7 +126,7 @@ func (c *ApiController) GetGlobalCerts() {
 			return
 		}
 
-		if !c.IsAdmin() {
+		if !c.IsGlobalAdmin() {
 			certs, err = object.GetMaskedCerts(certs, nil)
 			if err != nil {
 				c.ResponseError(err.Error())
@@ -153,7 +153,7 @@ func (c *ApiController) GetCert() {
 		return
 	}
 
-	if !c.IsAdmin() {
+	if !c.IsGlobalAdmin() {
 		cert = object.GetMaskedCert(cert)
 	}
 
