@@ -24,6 +24,55 @@ import (
 	"github.com/casdoor/casdoor/util"
 )
 
+// buildOrderProductInfos validates each requested product line and computes the
+// pre-coupon order price. It is a pure function (no DB access) so the pricing and
+// quantity-validation invariants can be regression-tested in isolation.
+func buildOrderProductInfos(owner string, reqProductInfos []ProductInfo, productMap map[string]Product) ([]ProductInfo, float64, error) {
+	var productInfos []ProductInfo
+	orderPrice := 0.0
+	for _, productInfo := range reqProductInfos {
+		product := productMap[productInfo.Name]
+
+		if productInfo.Quantity <= 0 {
+			return nil, 0, fmt.Errorf("the quantity should be greater than zero")
+		}
+
+		var productPrice float64
+		if product.IsRecharge {
+			productPrice = productInfo.Price
+			if productPrice <= 0 {
+				return nil, 0, fmt.Errorf("the custom price should be greater than zero")
+			}
+		} else {
+			productPrice = product.Price
+		}
+		productInfos = append(productInfos, ProductInfo{
+			Owner:       owner,
+			Name:        product.Name,
+			DisplayName: product.DisplayName,
+			Image:       product.Image,
+			Detail:      product.Detail,
+			Price:       productPrice,
+			Currency:    product.Currency,
+			IsRecharge:  product.IsRecharge,
+			Quantity:    productInfo.Quantity,
+			PricingName: productInfo.PricingName,
+			PlanName:    productInfo.PlanName,
+		})
+
+		orderPrice += productPrice * float64(productInfo.Quantity)
+	}
+
+	// Defense in depth: even if a per-line bound is ever bypassed, the computed
+	// pre-coupon total must be strictly positive so a negative/zero price can
+	// never be persisted onto an Order or carried into PayOrder / the provider.
+	if orderPrice <= 0 {
+		return nil, 0, fmt.Errorf("order total must be greater than zero")
+	}
+
+	return productInfos, orderPrice, nil
+}
+
 func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponCode string) (*Order, error) {
 	if len(reqProductInfos) == 0 {
 		return nil, fmt.Errorf("order has no products")
@@ -55,35 +104,9 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 		return nil, err
 	}
 
-	var productInfos []ProductInfo
-	orderPrice := 0.0
-	for _, productInfo := range reqProductInfos {
-		product := productMap[productInfo.Name]
-
-		var productPrice float64
-		if product.IsRecharge {
-			productPrice = productInfo.Price
-			if productPrice <= 0 {
-				return nil, fmt.Errorf("the custom price should be greater than zero")
-			}
-		} else {
-			productPrice = product.Price
-		}
-		productInfos = append(productInfos, ProductInfo{
-			Owner:       owner,
-			Name:        product.Name,
-			DisplayName: product.DisplayName,
-			Image:       product.Image,
-			Detail:      product.Detail,
-			Price:       productPrice,
-			Currency:    product.Currency,
-			IsRecharge:  product.IsRecharge,
-			Quantity:    productInfo.Quantity,
-			PricingName: productInfo.PricingName,
-			PlanName:    productInfo.PlanName,
-		})
-
-		orderPrice += productPrice * float64(productInfo.Quantity)
+	productInfos, orderPrice, err := buildOrderProductInfos(owner, reqProductInfos, productMap)
+	if err != nil {
+		return nil, err
 	}
 
 	// Apply coupon discount if provided
@@ -135,6 +158,12 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) (payment *Payment, attachInfo map[string]interface{}, err error) {
 	if order.State != "Created" {
 		return nil, nil, fmt.Errorf("cannot pay for order: %s, current state is %s", order.GetId(), order.State)
+	}
+	// Defense in depth: never carry a non-positive total into the payment
+	// provider (or a resulting Payment/Transaction record), even if such an
+	// order was somehow persisted.
+	if order.Price <= 0 {
+		return nil, nil, fmt.Errorf("order total must be greater than zero")
 	}
 	productNames := order.Products
 	products, err := getOrderProducts(order.Owner, productNames)
