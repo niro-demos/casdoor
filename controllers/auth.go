@@ -791,7 +791,7 @@ func (c *ApiController) Login() {
 			if errors.As(err, &signinErr) {
 				c.Ctx.Input.SetParam("recordDetail", signinErr.Reason)
 			}
-			c.ResponseError(err.Error())
+			c.ResponseError(c.T("check:password or code is incorrect"))
 			return
 		} else {
 			var application *object.Application

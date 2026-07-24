@@ -18,11 +18,10 @@
 package controllers
 
 import (
-	"fmt"
-
 	"github.com/casdoor/casdoor/object"
-	"github.com/casdoor/casdoor/util"
 )
+
+const faceSignInUnavailable = "Face sign-in unavailable"
 
 // FaceIDSigninBegin
 // @Title FaceIDSigninBegin
@@ -38,16 +37,16 @@ func (c *ApiController) FaceIDSigninBegin() {
 
 	user, err := object.GetUserByFields(userOwner, userName)
 	if err != nil {
-		c.ResponseError(err.Error())
+		c.ResponseError(faceSignInUnavailable)
 		return
 	}
 	if user == nil {
-		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(userOwner, userName)))
+		c.ResponseError(faceSignInUnavailable)
 		return
 	}
 
 	if len(user.FaceIds) == 0 {
-		c.ResponseError(c.T("check:Face data does not exist, cannot log in"))
+		c.ResponseError(faceSignInUnavailable)
 		return
 	}
 
