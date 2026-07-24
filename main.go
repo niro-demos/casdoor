@@ -51,6 +51,8 @@ func main() {
 	web.BConfig.WebConfig.Session.SessionGCMaxLifetime = int64(sessionCookieLifeTime)
 	// web.BConfig.WebConfig.Session.SessionCookieSameSite = http.SameSiteNoneMode
 
+	util.SetTrustedProxies(conf.GetTrustedProxies())
+
 	routers.InitAPI()
 	object.InitFlag()
 	object.InitAdapter()

@@ -119,3 +119,28 @@ func GetConfigBatchSize() int {
 	}
 	return res
 }
+
+// GetTrustedProxies returns the list of trusted reverse-proxy addresses (single
+// IPs or CIDR ranges) whose forwarded client-IP headers (X-Forwarded-For /
+// X-Real-IP) may be honored. Configure via the comma-separated "trustedProxies"
+// config item. When unset it defaults to loopback only, so a same-host reverse
+// proxy keeps working while a direct, untrusted caller can never forge its
+// source IP.
+func GetTrustedProxies() []string {
+	raw := strings.TrimSpace(GetConfigString("trustedProxies"))
+	if raw == "" {
+		return []string{"127.0.0.1", "::1"}
+	}
+
+	parts := strings.Split(raw, ",")
+	proxies := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			proxies = append(proxies, p)
+		}
+	}
+	if len(proxies) == 0 {
+		return []string{"127.0.0.1", "::1"}
+	}
+	return proxies
+}

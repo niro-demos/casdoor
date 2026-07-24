@@ -15,6 +15,7 @@
 package object
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"sync"
 
@@ -177,6 +178,60 @@ func GetOpenClawProviderByIP(clientIP string) (*log.OpenClawProvider, error) {
 				if ocp, ok := lp.(*log.OpenClawProvider); ok {
 					return ocp, nil
 				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+// OpenClawProviderRequiresToken reports whether at least one enabled OpenClaw
+// provider is configured with an ingestion secret (ClientSecret). When true, the
+// OTLP endpoints must authenticate every request with a token, and a request
+// carrying no valid token must be rejected — a forged client IP alone can never
+// authorize ingestion (see TC-B8325909).
+func OpenClawProviderRequiresToken() (bool, error) {
+	providers := []*Provider{}
+	err := ormer.Engine.Where("category = ? AND type = ? AND sub_type = ? AND (state = ? OR state = ?)", "Log", "Agent", "OpenClaw", "Enabled", "").Find(&providers)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range providers {
+		if p.ClientSecret != "" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// GetOpenClawProviderByToken returns the running OpenClawProvider whose
+// configured ingestion secret (ClientSecret) matches token, using a
+// constant-time comparison. An empty token never matches. This is the
+// credential-based authorization path for the OTLP ingestion endpoints: unlike
+// the client IP, the token is not forgeable from request metadata.
+func GetOpenClawProviderByToken(token string) (*log.OpenClawProvider, error) {
+	if token == "" {
+		return nil, nil
+	}
+
+	providers := []*Provider{}
+	err := ormer.Engine.Where("category = ? AND type = ? AND sub_type = ? AND (state = ? OR state = ?)", "Log", "Agent", "OpenClaw", "Enabled", "").Find(&providers)
+	if err != nil {
+		return nil, err
+	}
+
+	runningCollectorsMu.Lock()
+	defer runningCollectorsMu.Unlock()
+
+	for _, p := range providers {
+		if p.ClientSecret == "" {
+			continue
+		}
+		if subtle.ConstantTimeCompare([]byte(p.ClientSecret), []byte(token)) != 1 {
+			continue
+		}
+		if lp, ok := runningCollectors[p.GetId()]; ok {
+			if ocp, ok := lp.(*log.OpenClawProvider); ok {
+				return ocp, nil
 			}
 		}
 	}
