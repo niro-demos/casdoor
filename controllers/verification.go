@@ -34,7 +34,13 @@ const (
 	ForgetVerification   = "forget"
 	MfaSetupVerification = "mfaSetup"
 	MfaAuthVerification  = "mfaAuth"
+
+	forgetVerificationAcknowledgement = "If an eligible account matches, recovery instructions will be sent."
 )
+
+func (c *ApiController) responseForgetVerificationAcknowledgement() {
+	c.ResponseOk(forgetVerificationAcknowledgement)
+}
 
 // GetVerifications
 // @Title GetVerifications
@@ -209,12 +215,12 @@ func (c *ApiController) SendVerificationCode() {
 			return
 		}
 		if user == nil || user.IsDeleted {
-			c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+			c.responseForgetVerificationAcknowledgement()
 			return
 		}
 
 		if user.IsForbidden {
-			c.ResponseError(c.T("check:The user is forbidden to sign in, please contact the administrator"))
+			c.responseForgetVerificationAcknowledgement()
 			return
 		}
 	} else if mfaUserSession := c.getMfaUserSession(); mfaUserSession != "" {
@@ -321,6 +327,10 @@ func (c *ApiController) SendVerificationCode() {
 			}
 
 			if user == nil {
+				if vform.Method == ForgetVerification {
+					c.responseForgetVerificationAcknowledgement()
+					return
+				}
 				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
 				return
 			}
@@ -339,10 +349,18 @@ func (c *ApiController) SendVerificationCode() {
 
 		provider, err = application.GetEmailProvider(vform.Method)
 		if err != nil {
+			if vform.Method == ForgetVerification {
+				c.responseForgetVerificationAcknowledgement()
+				return
+			}
 			c.ResponseError(err.Error())
 			return
 		}
 		if provider == nil {
+			if vform.Method == ForgetVerification {
+				c.responseForgetVerificationAcknowledgement()
+				return
+			}
 			c.ResponseError(fmt.Sprintf(c.T("verification:please add an Email provider to the \"Providers\" list for the application: %s"), application.Name))
 			return
 		}
@@ -358,6 +376,10 @@ func (c *ApiController) SendVerificationCode() {
 				c.ResponseError(err.Error())
 				return
 			} else if user == nil {
+				if vform.Method == ForgetVerification {
+					c.responseForgetVerificationAcknowledgement()
+					return
+				}
 				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
 				return
 			}
@@ -385,10 +407,18 @@ func (c *ApiController) SendVerificationCode() {
 
 		provider, err = application.GetSmsProvider(vform.Method, vform.CountryCode)
 		if err != nil {
+			if vform.Method == ForgetVerification {
+				c.responseForgetVerificationAcknowledgement()
+				return
+			}
 			c.ResponseError(err.Error())
 			return
 		}
 		if provider == nil {
+			if vform.Method == ForgetVerification {
+				c.responseForgetVerificationAcknowledgement()
+				return
+			}
 			c.ResponseError(fmt.Sprintf(c.T("verification:please add a SMS provider to the \"Providers\" list for the application: %s"), application.Name))
 			return
 		}
@@ -402,6 +432,10 @@ func (c *ApiController) SendVerificationCode() {
 	}
 
 	if sendResp != nil {
+		if vform.Method == ForgetVerification {
+			c.responseForgetVerificationAcknowledgement()
+			return
+		}
 		c.ResponseError(sendResp.Error())
 	} else {
 		c.ResponseOk()

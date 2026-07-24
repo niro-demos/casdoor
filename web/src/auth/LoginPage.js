@@ -1357,8 +1357,7 @@ class LoginPage extends React.Component {
     const oAuthParams = Util.getOAuthGetParameters();
     this.populateOauthValues(values);
     const application = this.getApplicationObj();
-    const usernameParam = `&name=${encodeURIComponent(username)}`;
-    return fetch(`${Setting.ServerUrl}/api/webauthn/signin/begin?owner=${application.organization}${username ? usernameParam : ""}`, {
+    return fetch(`${Setting.ServerUrl}/api/webauthn/signin/begin?owner=${application.organization}`, {
       method: "GET",
       credentials: "include",
     })
@@ -1369,7 +1368,7 @@ class LoginPage extends React.Component {
         }
         credentialRequestOptions.publicKey.challenge = UserWebauthnBackend.webAuthnBufferDecode(credentialRequestOptions.publicKey.challenge);
 
-        if (username) {
+        if (credentialRequestOptions.publicKey.allowCredentials) {
           credentialRequestOptions.publicKey.allowCredentials.forEach(function(listItem) {
             listItem.id = UserWebauthnBackend.webAuthnBufferDecode(listItem.id);
           });
