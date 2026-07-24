@@ -91,6 +91,52 @@ func GetEnforcer(id string) (*Enforcer, error) {
 	return getEnforcer(owner, name)
 }
 
+// checkEnforcerOwnership enforces the cross-tenant integrity invariant: an
+// enforcer must only reference a Model and Adapter owned by the enforcer's own
+// organization. Without this, a tenant org-admin (IsAdmin=true, Owner!="built-in")
+// could create/repoint an enforcer they legitimately own so that it points at
+// another org's store — most dangerously the platform's shared "built-in"
+// policy store — and launder writes into rows they do not own.
+//
+// The "built-in" org is the platform/global-admin org; only global admins can
+// create objects there, so an enforcer owned by "built-in" is allowed to
+// reference any store (this preserves platform administration without needing
+// caller context here).
+func checkEnforcerOwnership(enforcer *Enforcer) error {
+	// Global-admin org: managing the shared/built-in stores is legitimate.
+	if enforcer.Owner == "built-in" {
+		return nil
+	}
+
+	if enforcer.Model != "" {
+		m, err := GetModel(enforcer.Model)
+		if err != nil {
+			return err
+		}
+		if m == nil {
+			return fmt.Errorf("the model: %s for enforcer: %s is not found", enforcer.Model, enforcer.GetId())
+		}
+		if m.Owner != enforcer.Owner {
+			return fmt.Errorf("unauthorized: enforcer must reference a model owned by the caller's own organization")
+		}
+	}
+
+	if enforcer.Adapter != "" {
+		a, err := GetAdapter(enforcer.Adapter)
+		if err != nil {
+			return err
+		}
+		if a == nil {
+			return fmt.Errorf("the adapter: %s for enforcer: %s is not found", enforcer.Adapter, enforcer.GetId())
+		}
+		if a.Owner != enforcer.Owner {
+			return fmt.Errorf("unauthorized: enforcer must reference an adapter owned by the caller's own organization")
+		}
+	}
+
+	return nil
+}
+
 func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
@@ -102,6 +148,14 @@ func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
 		return false, nil
 	}
 
+	// The persisted enforcer owns the row; validate the (possibly repointed)
+	// Model/Adapter against that owner so an org-admin cannot repoint an owned
+	// enforcer at a foreign store after creation.
+	enforcer.Owner = owner
+	if err = checkEnforcerOwnership(enforcer); err != nil {
+		return false, err
+	}
+
 	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(enforcer)
 	if err != nil {
 		return false, err
@@ -111,6 +165,10 @@ func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
 }
 
 func AddEnforcer(enforcer *Enforcer) (bool, error) {
+	if err := checkEnforcerOwnership(enforcer); err != nil {
+		return false, err
+	}
+
 	affected, err := ormer.Engine.Insert(enforcer)
 	if err != nil {
 		return false, err
