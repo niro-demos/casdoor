@@ -102,7 +102,12 @@ func (c *ApiController) UpdateAdapter() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdateAdapter(id, &adapter))
+	isGlobalAdmin, ok := c.requireCasbinConfigUpdateOwner(id, adapter.Owner)
+	if !ok {
+		return
+	}
+
+	c.Data["json"] = wrapActionResponse(object.UpdateAdapter(id, &adapter, isGlobalAdmin))
 	c.ServeJSON()
 }
 

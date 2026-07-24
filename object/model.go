@@ -15,6 +15,7 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/casbin/casbin/v2/config"
@@ -104,13 +105,13 @@ func getModelEx(id string) (*Model, error) {
 	return getModel("built-in", name)
 }
 
-func UpdateModelWithCheck(id string, modelObj *Model) error {
+func UpdateModelWithCheck(id string, modelObj *Model, isGlobalAdmin bool) error {
 	// check model grammar
 	_, err := model.NewModelFromString(modelObj.ModelText)
 	if err != nil {
 		return err
 	}
-	_, err = UpdateModel(id, modelObj)
+	_, err = UpdateModel(id, modelObj, isGlobalAdmin)
 	if err != nil {
 		return err
 	}
@@ -118,7 +119,7 @@ func UpdateModelWithCheck(id string, modelObj *Model) error {
 	return nil
 }
 
-func UpdateModel(id string, modelObj *Model) (bool, error) {
+func UpdateModel(id string, modelObj *Model, isGlobalAdmin bool) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
@@ -127,6 +128,9 @@ func UpdateModel(id string, modelObj *Model) (bool, error) {
 		return false, err
 	} else if m == nil {
 		return false, nil
+	}
+	if !isGlobalAdmin && owner != modelObj.Owner {
+		return false, errors.New("Unauthorized operation")
 	}
 
 	if name != modelObj.Name {

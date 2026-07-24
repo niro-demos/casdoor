@@ -15,6 +15,7 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -91,7 +92,7 @@ func GetEnforcer(id string) (*Enforcer, error) {
 	return getEnforcer(owner, name)
 }
 
-func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
+func UpdateEnforcer(id string, enforcer *Enforcer, isGlobalAdmin bool) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
@@ -100,6 +101,9 @@ func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
 		return false, err
 	} else if oldEnforcer == nil {
 		return false, nil
+	}
+	if !isGlobalAdmin && owner != enforcer.Owner {
+		return false, errors.New("Unauthorized operation")
 	}
 
 	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(enforcer)

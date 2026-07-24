@@ -141,7 +141,12 @@ func (c *ApiController) UpdatePermission() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdatePermission(id, &permission))
+	isGlobalAdmin, ok := c.requireCasbinConfigUpdateOwner(id, permission.Owner)
+	if !ok {
+		return
+	}
+
+	c.Data["json"] = wrapActionResponse(object.UpdatePermission(id, &permission, isGlobalAdmin))
 	c.ServeJSON()
 }
 

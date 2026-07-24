@@ -15,6 +15,7 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -96,13 +97,16 @@ func GetAdapter(id string) (*Adapter, error) {
 	return getAdapter(owner, name)
 }
 
-func UpdateAdapter(id string, adapter *Adapter) (bool, error) {
+func UpdateAdapter(id string, adapter *Adapter, isGlobalAdmin bool) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
 	}
 	if adapter, err := getAdapter(owner, name); adapter == nil {
 		return false, err
+	}
+	if !isGlobalAdmin && owner != adapter.Owner {
+		return false, errors.New("Unauthorized operation")
 	}
 
 	if name != adapter.Name {
