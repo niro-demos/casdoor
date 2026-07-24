@@ -64,19 +64,22 @@ type WebFingerLink struct {
 	Href string `json:"href"`
 }
 
-func isIpAddress(host string) bool {
-	// Attempt to split the host and port, ignoring the error
+// isLocalHost reports whether host (which may include a port) is a loopback /
+// local address. Only such hosts are considered safe to derive an authoritative
+// origin from when no "origin" is explicitly configured, because a remote
+// attacker cannot forge a loopback Host to reach the server.
+func isLocalHost(host string) bool {
 	hostWithoutPort, _, err := net.SplitHostPort(host)
 	if err != nil {
-		// If an error occurs, it might be because there's no port
-		// In that case, use the original host string
 		hostWithoutPort = host
 	}
-
-	// Attempt to parse the host as an IP address (both IPv4 and IPv6)
-	ip := net.ParseIP(hostWithoutPort)
-	// if host is not nil is an IP address else is not an IP address
-	return ip != nil
+	if hostWithoutPort == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(hostWithoutPort); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 func getOriginFromHostInternal(host string) (string, string) {
@@ -86,15 +89,24 @@ func getOriginFromHostInternal(host string) (string, string) {
 	}
 
 	isDev := conf.GetConfigString("runmode") == "dev"
-	// "door.casdoor.com"
-	protocol := "https://"
-	if !strings.Contains(host, ".") {
-		// "localhost:8000" or "computer-name:80"
-		protocol = "http://"
-	} else if isIpAddress(host) {
-		// "192.168.0.10"
-		protocol = "http://"
+
+	// Security (TC-8EFF1BEE): the incoming Host header is client-supplied and
+	// must not be echoed verbatim into authoritative URLs (OIDC issuer /
+	// endpoints, SAML redirect Location). When no "origin" is configured, only
+	// trust a loopback / local Host, which a remote attacker cannot forge. For
+	// any other Host, fall back to the safe local default instead of reflecting
+	// the attacker-controlled value. Multi-domain / production deployments must
+	// set "origin" (or "originFrontend") explicitly.
+	if !isLocalHost(host) {
+		// Safe default that never reflects an arbitrary external Host.
+		if isDev {
+			return "http://localhost:7001", "http://localhost:8000"
+		}
+		return "http://localhost:8000", "http://localhost:8000"
 	}
+
+	// "localhost:8000" or a loopback address such as "127.0.0.1:8000".
+	protocol := "http://"
 
 	if host == "localhost:8000" && isDev {
 		return fmt.Sprintf("%s%s", protocol, "localhost:7001"), fmt.Sprintf("%s%s", protocol, "localhost:8000")
