@@ -323,6 +323,11 @@ func (c *ApiController) GetAllObjects() {
 		}
 	}
 
+	if userId != c.GetSessionUsername() && !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	objects, err := object.GetAllObjects(userId)
 	if err != nil {
 		c.ResponseError(err.Error())
@@ -349,6 +354,11 @@ func (c *ApiController) GetAllActions() {
 		}
 	}
 
+	if userId != c.GetSessionUsername() && !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	actions, err := object.GetAllActions(userId)
 	if err != nil {
 		c.ResponseError(err.Error())
@@ -373,6 +383,11 @@ func (c *ApiController) GetAllRoles() {
 			c.ResponseError(c.T("general:Please login first"))
 			return
 		}
+	}
+
+	if userId != c.GetSessionUsername() && !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
 	}
 
 	roles, err := object.GetAllRoles(userId)
