@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -13,7 +14,50 @@ import (
 
 	"github.com/beego/beego/v2/core/logs"
 	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
 )
+
+// validateScanTargetURL guards every outbound connection the scan feature makes
+// against SSRF. The scan caller supplies the target URL, so before the server is
+// allowed to connect to a parsed URL, its host is resolved and every resolved
+// address is checked; if the host itself is a literal IP, that IP is checked
+// directly. A request is rejected if any destination address falls in a
+// loopback / link-local / private (RFC1918) / multicast / unspecified range.
+// This is called both for the initial target and for every redirect hop, closing
+// the redirect (and DNS-rebinding) bypass.
+func validateScanTargetURL(u *url.URL) error {
+	if u == nil {
+		return fmt.Errorf("scan target: nil URL")
+	}
+
+	host := u.Hostname()
+	if strings.TrimSpace(host) == "" {
+		return fmt.Errorf("scan target: host is empty")
+	}
+
+	// Literal IP host: check it directly (no lookup).
+	if ip := net.ParseIP(host); ip != nil {
+		if util.IsIntranetIp(ip.String()) || ip.IsMulticast() || ip.IsUnspecified() {
+			return fmt.Errorf("scan target %q resolves to a disallowed internal address", host)
+		}
+		return nil
+	}
+
+	// Hostname: resolve and reject if ANY resolved address is internal.
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("scan target %q: cannot resolve host: %v", host, err)
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("scan target %q: host resolved to no addresses", host)
+	}
+	for _, ip := range ips {
+		if util.IsIntranetIp(ip.String()) || ip.IsMulticast() || ip.IsUnspecified() {
+			return fmt.Errorf("scan target %q resolves to a disallowed internal address (%s)", host, ip.String())
+		}
+	}
+	return nil
+}
 
 func getSiteBaseURLs(site *object.Site) []string {
 	res := []string{}
@@ -112,6 +156,10 @@ func normalizeScanBaseURL(rawURL string) (string, string, error) {
 
 	if strings.TrimSpace(u.Host) == "" {
 		return "", "", fmt.Errorf("invalid target URL: host is empty")
+	}
+
+	if err := validateScanTargetURL(u); err != nil {
+		return "", "", err
 	}
 
 	baseURL := fmt.Sprintf("%s://%s", scheme, u.Host)
@@ -309,6 +357,13 @@ func doRequest(client *http.Client, method string, baseURL string, path string) 
 	maxRedirects := 8
 
 	for i := 0; i <= maxRedirects; i++ {
+		// Guard every hop (initial request and each redirect target) so the scan
+		// feature cannot be coerced into connecting to an internal address, even
+		// via a redirect from a public host.
+		if err := validateScanTargetURL(requestURL); err != nil {
+			return 0, nil, "", err
+		}
+
 		req, err := http.NewRequest(requestMethod, requestURL.String(), nil)
 		if err != nil {
 			return 0, nil, "", err
