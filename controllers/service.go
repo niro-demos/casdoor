@@ -95,9 +95,17 @@ func (c *ApiController) SendEmail() {
 
 	if emailForm.ProviderObject.Name != "" {
 		if emailForm.ProviderObject.ClientSecret == "***" {
+			if provider == nil {
+				c.ResponseError(fmt.Sprintf(c.T("util:The provider: %s is not found"), emailForm.Provider))
+				return
+			}
 			emailForm.ProviderObject.ClientSecret = provider.ClientSecret
 		}
 		provider = &emailForm.ProviderObject
+	}
+	if provider == nil {
+		c.ResponseError(fmt.Sprintf(c.T("util:The provider: %s is not found"), emailForm.Provider))
+		return
 	}
 
 	// when receiver is the reserved keyword: "TestSmtpServer", it means to test the SMTP server instead of sending a real Email

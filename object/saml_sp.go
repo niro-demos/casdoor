@@ -99,6 +99,9 @@ func GenerateSamlRequest(id, relayState, host, lang string) (auth string, method
 	if err != nil {
 		return "", "", err
 	}
+	if provider == nil {
+		return "", "", fmt.Errorf(i18n.Translate(lang, "auth:The provider: %s does not exist"), id)
+	}
 	if provider.Category != "SAML" {
 		return "", "", fmt.Errorf(i18n.Translate(lang, "saml_sp:provider %s's category is not SAML"), provider.Name)
 	}

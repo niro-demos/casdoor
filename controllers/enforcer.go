@@ -242,6 +242,10 @@ func (c *ApiController) UpdatePolicy() {
 		c.ResponseError(err.Error())
 		return
 	}
+	if len(policies) != 2 {
+		c.ResponseError(fmt.Sprintf("invalid policy update payload: expected 2 policies, got %d", len(policies)))
+		return
+	}
 
 	affected, err := object.UpdatePolicy(id, policies[0].Ptype, util.CasbinToSlice(policies[0]), util.CasbinToSlice(policies[1]))
 	if err != nil {

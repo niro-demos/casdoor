@@ -445,6 +445,12 @@ func SyncLdapUsers(owner string, syncUsers []LdapUser, ldapId string) (existUser
 	}
 
 	ldap, err := GetLdap(ldapId)
+	if err != nil {
+		return nil, nil, err
+	}
+	if ldap == nil {
+		return nil, nil, fmt.Errorf("the LDAP: %s does not exist", ldapId)
+	}
 
 	var dc []string
 	for _, basedn := range strings.Split(ldap.BaseDn, ",") {
@@ -657,6 +663,9 @@ func SyncLdapGroups(owner string, ldapGroups []LdapGroup, ldapId string) (newGro
 	ldap, err := GetLdap(ldapId)
 	if err != nil {
 		return 0, 0, err
+	}
+	if ldap == nil {
+		return 0, 0, fmt.Errorf("the LDAP: %s does not exist", ldapId)
 	}
 
 	// Process groups in hierarchical order (parents before children)
