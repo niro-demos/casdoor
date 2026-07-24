@@ -178,6 +178,20 @@ func (c *ApiController) UpdateOrder() {
 		return
 	}
 
+	// A client calling this endpoint must not be able to self-declare the order
+	// as paid/completed or change its price outside the real payment provider
+	// flow. The trusted payment-callback path mutates orders via the object
+	// layer directly and does not run this guard.
+	existingOrder, err := object.GetOrder(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	if err := object.CheckOrderFieldChange(existingOrder, &order); err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	c.Data["json"] = wrapActionResponse(object.UpdateOrder(id, &order))
 	c.ServeJSON()
 }

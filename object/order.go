@@ -127,6 +127,39 @@ func GetOrder(id string) (*Order, error) {
 	return getOrder(owner, name)
 }
 
+// paidOrderStates are the order states that represent a completed/settled
+// purchase. Transitioning an order into one of these states must only ever be
+// driven by the trusted payment-provider callback flow (NotifyPayment /
+// order_pay.go), which mutates orders through the object layer directly. A
+// self-service caller of the /api/update-order HTTP endpoint must never be able
+// to move an order into a paid state, nor change its price.
+var paidOrderStates = map[string]bool{
+	"Paid":      true,
+	"Completed": true,
+}
+
+// CheckOrderFieldChange enforces, for the client-facing update path, that the
+// caller cannot self-declare an order as paid/completed or change its price
+// without going through the real payment provider. `old` is the stored order,
+// `incoming` is the client-supplied update. It returns an error describing the
+// forbidden change, or nil when the update touches no protected field.
+//
+// This deliberately lives outside object.UpdateOrder so the trusted internal
+// callback path (which legitimately sets state -> Paid and adjusts price) is not
+// affected; only the HTTP controller runs this guard.
+func CheckOrderFieldChange(old, incoming *Order) error {
+	if old == nil || incoming == nil {
+		return nil
+	}
+	if incoming.State != old.State && paidOrderStates[incoming.State] {
+		return fmt.Errorf("the order state cannot be changed to \"%s\" directly; it can only be set by completing a payment through the payment provider", incoming.State)
+	}
+	if incoming.Price != old.Price {
+		return fmt.Errorf("the order price cannot be changed directly; it is determined by the ordered products and the payment provider")
+	}
+	return nil
+}
+
 func UpdateOrder(id string, order *Order) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {

@@ -174,6 +174,28 @@ func GetPayment(id string) (*Payment, error) {
 	return getPayment(owner, name)
 }
 
+// CheckPaymentFieldChange enforces, for the client-facing update path, that the
+// caller cannot self-declare a payment as paid or change its price without the
+// real payment provider. `old` is the stored payment, `incoming` is the
+// client-supplied update. It returns an error describing the forbidden change,
+// or nil when the update touches no protected field.
+//
+// This deliberately lives outside object.UpdatePayment so the trusted internal
+// callback path (NotifyPayment, which legitimately sets state -> Paid) is not
+// affected; only the HTTP controller runs this guard.
+func CheckPaymentFieldChange(old, incoming *Payment) error {
+	if old == nil || incoming == nil {
+		return nil
+	}
+	if incoming.State != old.State && incoming.State == pp.PaymentStatePaid {
+		return fmt.Errorf("the payment state cannot be changed to \"%s\" directly; it can only be set by completing a payment through the payment provider", incoming.State)
+	}
+	if incoming.Price != old.Price {
+		return fmt.Errorf("the payment price cannot be changed directly; it is determined by the order and the payment provider")
+	}
+	return nil
+}
+
 func UpdatePayment(id string, payment *Payment) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {

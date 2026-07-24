@@ -179,6 +179,20 @@ func (c *ApiController) UpdatePayment() {
 		return
 	}
 
+	// A client calling this endpoint must not be able to self-declare the
+	// payment as paid or change its price outside the real payment provider
+	// flow. The trusted payment-callback path (notify-payment) mutates payments
+	// via the object layer directly and does not run this guard.
+	existingPayment, err := object.GetPayment(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	if err := object.CheckPaymentFieldChange(existingPayment, &payment); err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	c.Data["json"] = wrapActionResponse(object.UpdatePayment(id, &payment))
 	c.ServeJSON()
 }
