@@ -693,6 +693,12 @@ func GetLogProviderFromProvider(provider *Provider) (log.LogProvider, error) {
 
 	if provider.Type == "Agent" && provider.SubType == "OpenClaw" {
 		providerName := provider.Name
+		// Attribute ingested telemetry to the organization that owns the matched
+		// Provider record, so it is stored and authorized under that tenant's
+		// scope (GetEntries filters by Entry.Owner) rather than being pooled into
+		// the global built-in org and commingled across tenants. Matches the
+		// sibling Casdoor Permission Log branch, which parameterizes Owner.
+		providerOwner := provider.Owner
 		return log.NewOpenClawProvider(providerName, func(entryType, message, clientIp, userAgent string) error {
 			// Bypass: metrics entries are temporarily not persisted to the database.
 			if entryType == "metrics" {
@@ -702,7 +708,7 @@ func GetLogProviderFromProvider(provider *Provider) (log.LogProvider, error) {
 			name := log.GenerateEntryName()
 			currentTime := util.GetCurrentTime()
 			entry := &Entry{
-				Owner:       CasdoorOrganization,
+				Owner:       providerOwner,
 				Name:        name,
 				CreatedTime: currentTime,
 				UpdatedTime: currentTime,
