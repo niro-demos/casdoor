@@ -309,6 +309,18 @@ func CheckVerificationCode(dest string, code string, lang string) (*VerifyResult
 	return &VerifyResult{VerificationSuccess, ""}, nil
 }
 
+// CheckSignupVerificationCode verifies an email/phone verification code entered
+// during signup. It is the single seam used by ApiController.Signup for both the
+// email and phone code checks. No account exists yet at signup time, so there is
+// no per-user counter to key on; brute-force protection is enforced per
+// (client-IP, destination) via the same limiter used by /api/verify-code and
+// /api/reset-email-or-phone.
+func CheckSignupVerificationCode(clientIp, dest, code, lang string) error {
+	// nil user: no account exists yet at signup, so the limiter keys purely on
+	// (clientIp, dest) — the same IP-only path used by /api/reset-email-or-phone.
+	return CheckVerifyCodeWithLimitAndIp(nil, clientIp, dest, code, lang)
+}
+
 func DisableVerificationCode(dest string) error {
 	record, err := getUnusedVerificationRecord(dest)
 	if record == nil || err != nil {
