@@ -708,6 +708,30 @@ func parseAndValidateSubjectToken(subjectToken string, requestingClientId string
 	return claims.Owner, claims.Name, claims.Scope, nil, nil
 }
 
+// IsIntrospectionAuthorized reports whether the OAuth client authenticated on the
+// introspection request (callerClientId) is allowed to learn the metadata of the
+// submitted token. A client may only introspect a token it owns: either the token
+// is bound to the caller via its owning application's client_id, or the caller
+// appears in the token's `aud` claim. This mirrors the audience-binding check used
+// during token exchange (RFC 8693 §2.1) and enforces RFC 7662 tenant isolation:
+// when the caller neither owns nor is an audience of the token, introspection must
+// short-circuit to {"active": false} instead of leaking the token owner's
+// identity/scope/liveness across tenants.
+func IsIntrospectionAuthorized(callerClientId string, tokenOwningClientId string, tokenAudience []string) bool {
+	if callerClientId == "" {
+		return false
+	}
+	if callerClientId == tokenOwningClientId {
+		return true
+	}
+	for _, aud := range tokenAudience {
+		if aud == callerClientId {
+			return true
+		}
+	}
+	return false
+}
+
 // createGuestUserToken creates a new guest user and returns a token for them.
 func createGuestUserToken(application *Application, clientSecret string, verifier string) (*Token, *TokenError, error) {
 	if clientSecret != "" && application.ClientSecret != clientSecret {

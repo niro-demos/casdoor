@@ -506,7 +506,7 @@ func (c *ApiController) ValidateOAuth(ignoreValidSecret bool) (ok bool, applicat
 func (c *ApiController) IntrospectToken() {
 	tokenValue := c.Ctx.Input.Query("token")
 
-	ok, application, _, _, err := c.ValidateOAuth(false)
+	ok, application, callerClientId, _, err := c.ValidateOAuth(false)
 	if err != nil || !ok {
 		return
 	}
@@ -613,6 +613,16 @@ func (c *ApiController) IntrospectToken() {
 		}
 		if application == nil {
 			c.ResponseError(fmt.Sprintf(c.T("auth:The application: %s does not exist"), token.Application))
+			return
+		}
+
+		// Tenant isolation (RFC 7662): the authenticated caller may only
+		// introspect a token it owns — one issued by its own application, or one
+		// whose audience includes the caller. Otherwise short-circuit to
+		// {"active": false} so an unrelated client cannot learn a foreign token's
+		// identity/scope/liveness.
+		if !object.IsIntrospectionAuthorized(callerClientId, application.ClientId, introspectionResponse.Aud) {
+			respondWithInactiveToken()
 			return
 		}
 
