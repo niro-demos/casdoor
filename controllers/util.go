@@ -146,6 +146,33 @@ func (c *ApiController) RequireAdmin() (string, bool) {
 	return user.Owner, true
 }
 
+// isPrometheusAdmin reports whether the given user is authorized to read the
+// process-wide Prometheus telemetry (get-prometheus-info / metrics).
+// Those metrics are gathered from the process-wide prometheus.DefaultGatherer and
+// carry no organization label, so they expose platform-wide, all-tenant API usage
+// and latency. Only a global (built-in) admin may read them; an org-scoped admin
+// (IsAdmin==true, Owner!="built-in") must not.
+func isPrometheusAdmin(user *object.User) bool {
+	return user.IsGlobalAdmin()
+}
+
+// RequireGlobalAdmin gates an endpoint on global-admin (built-in) privilege. It
+// returns the caller's user and true when authorized; otherwise it writes the
+// standard unauthorized-operation error and returns false.
+func (c *ApiController) RequireGlobalAdmin() (*object.User, bool) {
+	user, ok := c.RequireSignedInUser()
+	if !ok {
+		return nil, false
+	}
+
+	if !isPrometheusAdmin(user) {
+		c.ResponseError(c.T("general:this operation requires administrator to perform"))
+		return nil, false
+	}
+
+	return user, true
+}
+
 func (c *ApiController) IsOrgAdmin() (bool, bool) {
 	userId, ok := c.RequireSignedIn()
 	if !ok {

@@ -26,7 +26,7 @@ import (
 // @Success 200 {object} object.PrometheusInfo The Response object
 // @router /get-prometheus-info [get]
 func (c *ApiController) GetPrometheusInfo() {
-	_, ok := c.RequireAdmin()
+	_, ok := c.RequireGlobalAdmin()
 	if !ok {
 		return
 	}
@@ -59,7 +59,7 @@ func (c *ApiController) GetMetrics() {
 			return
 		}
 	} else {
-		_, ok := c.RequireAdmin()
+		_, ok := c.RequireGlobalAdmin()
 		if !ok {
 			return
 		}
