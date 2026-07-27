@@ -437,6 +437,13 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		}, nil
 	}
 
+	if !TokenBelongsToApplication(token, application) {
+		return &TokenError{
+			Error:            InvalidGrant,
+			ErrorDescription: "refresh token was not issued to this client",
+		}, nil
+	}
+
 	cert, err := getCertByApplication(application)
 	if err != nil {
 		return nil, err

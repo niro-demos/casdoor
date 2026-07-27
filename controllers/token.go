@@ -398,7 +398,7 @@ func (c *ApiController) RefreshToken() {
 		}
 	}
 
-	ok, application, clientId, _, err := c.ValidateOAuth(true)
+	ok, application, clientId, _, err := c.ValidateOAuth(false)
 	if err != nil || !ok {
 		return
 	}
@@ -506,7 +506,7 @@ func (c *ApiController) ValidateOAuth(ignoreValidSecret bool) (ok bool, applicat
 func (c *ApiController) IntrospectToken() {
 	tokenValue := c.Ctx.Input.Query("token")
 
-	ok, application, _, _, err := c.ValidateOAuth(false)
+	ok, requestingApplication, _, _, err := c.ValidateOAuth(false)
 	if err != nil || !ok {
 		return
 	}
@@ -538,8 +538,8 @@ func (c *ApiController) IntrospectToken() {
 
 	var introspectionResponse object.IntrospectionResponse
 
-	if application.TokenFormat == "JWT-Standard" {
-		jwtToken, err := object.ParseStandardJwtTokenByApplication(tokenValue, application)
+	if requestingApplication.TokenFormat == "JWT-Standard" {
+		jwtToken, err := object.ParseStandardJwtTokenByApplication(tokenValue, requestingApplication)
 		if err != nil {
 			// and token revoked case. but we not implement
 			// TODO: 2022-03-03 add token revoked check, when we implemented the Token Revocation(rfc7009) Specs.
@@ -562,7 +562,7 @@ func (c *ApiController) IntrospectToken() {
 			Jti:       jwtToken.ID,
 		}
 	} else {
-		jwtToken, err := object.ParseJwtTokenByApplication(tokenValue, application)
+		jwtToken, err := object.ParseJwtTokenByApplication(tokenValue, requestingApplication)
 		if err != nil {
 			// and token revoked case. but we not implement
 			// TODO: 2022-03-03 add token revoked check, when we implemented the Token Revocation(rfc7009) Specs.
@@ -606,18 +606,23 @@ func (c *ApiController) IntrospectToken() {
 	}
 
 	if token != nil {
-		application, err = object.GetApplication(fmt.Sprintf("%s/%s", token.Owner, token.Application))
+		if !object.TokenBelongsToApplication(token, requestingApplication) {
+			respondWithInactiveToken()
+			return
+		}
+
+		tokenApplication, err := object.GetApplication(fmt.Sprintf("%s/%s", token.Owner, token.Application))
 		if err != nil {
 			c.ResponseTokenError(object.InvalidClient, err.Error())
 			return
 		}
-		if application == nil {
+		if tokenApplication == nil {
 			c.ResponseError(fmt.Sprintf(c.T("auth:The application: %s does not exist"), token.Application))
 			return
 		}
 
 		introspectionResponse.TokenType = token.TokenType
-		introspectionResponse.ClientId = application.ClientId
+		introspectionResponse.ClientId = tokenApplication.ClientId
 
 		// Expose DPoP key binding in the introspection response (RFC 9449 §8).
 		if token.DPoPJkt != "" {
