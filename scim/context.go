@@ -1,4 +1,4 @@
-// Copyright 2023 The Casdoor Authors. All Rights Reserved.
+// Copyright 2026 The Casdoor Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,22 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package controllers
+package scim
 
 import (
-	"strings"
-
-	"github.com/casdoor/casdoor/scim"
+	"context"
+	"net/http"
 )
 
-func (c *RootController) HandleScim() {
-	owner, ok := c.RequireAdmin()
-	if !ok {
-		return
-	}
+type ownerContextKey struct{}
 
-	path := c.Ctx.Request.URL.Path
-	c.Ctx.Request.URL.Path = strings.TrimPrefix(path, "/scim")
-	c.Ctx.Request = scim.WithRequestOwner(c.Ctx.Request, owner)
-	scim.Server.ServeHTTP(c.Ctx.ResponseWriter, c.Ctx.Request)
+func WithRequestOwner(r *http.Request, owner string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), ownerContextKey{}, owner))
+}
+
+func getRequestOwner(r *http.Request) string {
+	owner, _ := r.Context().Value(ownerContextKey{}).(string)
+	return owner
 }
