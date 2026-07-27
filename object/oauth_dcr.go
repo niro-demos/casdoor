@@ -16,6 +16,8 @@ package object
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/casdoor/casdoor/util"
@@ -114,6 +116,9 @@ func RegisterDynamicClient(req *DynamicClientRegistrationRequest, organization s
 	}
 	if req.ApplicationType == "" {
 		req.ApplicationType = "web"
+	}
+	if errResp := validateDcrRedirectUris(req.RedirectUris); errResp != nil {
+		return nil, errResp, nil
 	}
 
 	// Generate unique application name
@@ -267,6 +272,9 @@ func UpdateDynamicClient(app *Application, req *DynamicClientRegistrationRequest
 			ErrorDescription: "redirect_uris is required and must contain at least one URI",
 		}, nil
 	}
+	if errResp := validateDcrRedirectUris(req.RedirectUris); errResp != nil {
+		return nil, errResp, nil
+	}
 
 	app.DisplayName = firstNonEmpty(req.ClientName, app.DisplayName)
 	app.RedirectUris = req.RedirectUris
@@ -299,6 +307,19 @@ func DeleteDynamicClient(app *Application) *DcrError {
 	}
 	if !affected {
 		return &DcrError{Error: "server_error", ErrorDescription: "failed to delete client"}
+	}
+	return nil
+}
+
+func validateDcrRedirectUris(redirectUris []string) *DcrError {
+	for _, redirectUri := range redirectUris {
+		parsed, err := url.Parse(redirectUri)
+		if err != nil || redirectUri != strings.TrimSpace(redirectUri) || !parsed.IsAbs() || parsed.Scheme != "https" || parsed.Host == "" {
+			return &DcrError{
+				Error:            "invalid_redirect_uri",
+				ErrorDescription: "redirect_uris must contain absolute https URIs with a host",
+			}
+		}
 	}
 	return nil
 }
