@@ -20,8 +20,6 @@ import (
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-
-	"github.com/casdoor/casdoor/util"
 )
 
 // @Title AddOtlpTrace
@@ -52,7 +50,7 @@ func (c *ApiController) AddOtlpTrace() {
 		return
 	}
 
-	clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
+	clientIp, _ := getOpenClawClientIP(c.Ctx.Request)
 	userAgent := c.Ctx.Request.Header.Get("User-Agent")
 	if err := provider.AddTrace(message, clientIp, userAgent); err != nil {
 		responseOtlpError(c.Ctx, 500, body, "save trace failed: %v", err)
@@ -93,7 +91,7 @@ func (c *ApiController) AddOtlpMetrics() {
 		return
 	}
 
-	clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
+	clientIp, _ := getOpenClawClientIP(c.Ctx.Request)
 	userAgent := c.Ctx.Request.Header.Get("User-Agent")
 	if err := provider.AddMetrics(message, clientIp, userAgent); err != nil {
 		responseOtlpError(c.Ctx, 500, body, "save metrics failed: %v", err)
@@ -134,7 +132,7 @@ func (c *ApiController) AddOtlpLogs() {
 		return
 	}
 
-	clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
+	clientIp, _ := getOpenClawClientIP(c.Ctx.Request)
 	userAgent := c.Ctx.Request.Header.Get("User-Agent")
 	if err := provider.AddLogs(message, clientIp, userAgent); err != nil {
 		responseOtlpError(c.Ctx, 500, body, "save logs failed: %v", err)
