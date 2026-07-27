@@ -134,7 +134,7 @@ func (c *ApiController) UpdateInvitation() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdateInvitation(id, &invitation, c.GetAcceptLanguage()))
+	c.Data["json"] = wrapActionResponse(object.UpdateInvitation(id, &invitation, c.IsGlobalAdmin(), c.GetAcceptLanguage()))
 	c.ServeJSON()
 }
 

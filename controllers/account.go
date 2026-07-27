@@ -310,7 +310,7 @@ func (c *ApiController) Signup() {
 
 	if invitation != nil {
 		invitation.UsedCount += 1
-		_, err := object.UpdateInvitation(invitation.GetId(), invitation, c.GetAcceptLanguage())
+		_, err := object.UpdateInvitation(invitation.GetId(), invitation, false, c.GetAcceptLanguage())
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
