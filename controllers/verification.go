@@ -34,6 +34,8 @@ const (
 	ForgetVerification   = "forget"
 	MfaSetupVerification = "mfaSetup"
 	MfaAuthVerification  = "mfaAuth"
+
+	verifyCodeFailure = "verification:Invalid or expired verification code"
 )
 
 // GetVerifications
@@ -614,10 +616,10 @@ func (c *ApiController) VerifyCode() {
 	}
 
 	if user, err = object.GetUserByFields(authForm.Organization, lookupUsername); err != nil {
-		c.ResponseError(err.Error())
+		c.ResponseError(c.T(verifyCodeFailure))
 		return
 	} else if user == nil {
-		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(authForm.Organization, authForm.Username)))
+		c.ResponseError(c.T(verifyCodeFailure))
 		return
 	}
 
@@ -641,7 +643,7 @@ func (c *ApiController) VerifyCode() {
 		clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
 		err = object.CheckVerifyCodeWithLimitAndIp(user, clientIp, checkDest, authForm.Code, c.GetAcceptLanguage())
 		if err != nil {
-			c.ResponseError(err.Error())
+			c.ResponseError(c.T(verifyCodeFailure))
 			return
 		}
 

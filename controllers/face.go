@@ -18,11 +18,10 @@
 package controllers
 
 import (
-	"fmt"
-
 	"github.com/casdoor/casdoor/object"
-	"github.com/casdoor/casdoor/util"
 )
+
+const faceIDSigninBeginFailure = "check:Face sign-in cannot be started"
 
 // FaceIDSigninBegin
 // @Title FaceIDSigninBegin
@@ -41,13 +40,8 @@ func (c *ApiController) FaceIDSigninBegin() {
 		c.ResponseError(err.Error())
 		return
 	}
-	if user == nil {
-		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(userOwner, userName)))
-		return
-	}
-
-	if len(user.FaceIds) == 0 {
-		c.ResponseError(c.T("check:Face data does not exist, cannot log in"))
+	if user == nil || len(user.FaceIds) == 0 {
+		c.ResponseError(c.T(faceIDSigninBeginFailure))
 		return
 	}
 
