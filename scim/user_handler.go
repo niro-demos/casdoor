@@ -30,12 +30,12 @@ type UserResourceHandler struct{}
 
 func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
 	resource := &scim.Resource{Attributes: attrs}
-	err := AddScimUser(resource)
+	err := addScimUser(getRequestOwner(r), resource)
 	return *resource, err
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := GetScimUser(id)
+	resource, err := getScimUser(getRequestOwner(r), id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
@@ -46,7 +46,7 @@ func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, err
 }
 
 func (h UserResourceHandler) Delete(r *http.Request, id string) error {
-	user, err := object.GetUserByUserIdOnly(id)
+	user, err := getUserByScimId(getRequestOwner(r), id)
 	if err != nil {
 		return err
 	}
@@ -58,8 +58,9 @@ func (h UserResourceHandler) Delete(r *http.Request, id string) error {
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	owner := getRequestOwner(r)
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		count, err := getScimUserCount(owner)
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -68,7 +69,7 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 
 	resources := make([]scim.Resource, 0)
 	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	users, err := getPaginationScimUsers(owner, params.StartIndex-1, params.Count)
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -82,18 +83,20 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 }
 
 func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim.PatchOperation) (scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
+	owner := getRequestOwner(r)
+	user, err := getUserByScimId(owner, id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
 	if user == nil {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
-	return UpdateScimUserByPatchOperation(id, operations)
+	return updateScimUserByPatchOperation(owner, id, operations)
 }
 
 func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
+	owner := getRequestOwner(r)
+	user, err := getUserByScimId(owner, id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
@@ -101,12 +104,16 @@ func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.Reso
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	resource := &scim.Resource{Attributes: attrs}
-	err = UpdateScimUser(id, resource)
+	err = updateScimUser(owner, id, resource)
 	return *resource, err
 }
 
 func GetScimUser(id string) (*scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
+	return getScimUser("", id)
+}
+
+func getScimUser(owner string, id string) (*scim.Resource, error) {
+	user, err := getUserByScimId(owner, id)
 	if err != nil {
 		return nil, err
 	}
@@ -118,9 +125,16 @@ func GetScimUser(id string) (*scim.Resource, error) {
 }
 
 func AddScimUser(r *scim.Resource) error {
+	return addScimUser("", r)
+}
+
+func addScimUser(owner string, r *scim.Resource) error {
 	newUser, err := resource2user(r.Attributes)
 	if err != nil {
 		return err
+	}
+	if owner != "" {
+		newUser.Owner = owner
 	}
 
 	// Check whether the user exists.
@@ -148,7 +162,11 @@ func AddScimUser(r *scim.Resource) error {
 }
 
 func UpdateScimUser(id string, r *scim.Resource) error {
-	oldUser, err := object.GetUserByUserIdOnly(id)
+	return updateScimUser("", id, r)
+}
+
+func updateScimUser(owner string, id string, r *scim.Resource) error {
+	oldUser, err := getUserByScimId(owner, id)
 	if err != nil {
 		return err
 	}
@@ -158,6 +176,9 @@ func UpdateScimUser(id string, r *scim.Resource) error {
 	newUser, err := resource2user(r.Attributes)
 	if err != nil {
 		return err
+	}
+	if owner != "" {
+		newUser.Owner = owner
 	}
 	_, err = object.UpdateUser(oldUser.GetId(), newUser, nil, true)
 	if err != nil {
@@ -172,7 +193,11 @@ func UpdateScimUser(id string, r *scim.Resource) error {
 
 // https://datatracker.ietf.org/doc/html/rfc7644#section-3.5.2 Modifying with PATCH
 func UpdateScimUserByPatchOperation(id string, ops []scim.PatchOperation) (r scim.Resource, err error) {
-	user, err := object.GetUserByUserIdOnly(id)
+	return updateScimUserByPatchOperation("", id, ops)
+}
+
+func updateScimUserByPatchOperation(owner string, id string, ops []scim.PatchOperation) (r scim.Resource, err error) {
+	user, err := getUserByScimId(owner, id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
@@ -251,10 +276,34 @@ func UpdateScimUserByPatchOperation(id string, ops []scim.PatchOperation) (r sci
 			user.Owner = ToString(value, user.Owner)
 		}
 	}
+	if owner != "" {
+		user.Owner = owner
+	}
 	_, err = object.UpdateUser(old, user, nil, true)
 	if err != nil {
 		return scim.Resource{}, err
 	}
 	r = *user2resource(user)
 	return r, nil
+}
+
+func getUserByScimId(owner string, id string) (*object.User, error) {
+	if owner == "" {
+		return object.GetUserByUserIdOnly(id)
+	}
+	return object.GetUserByUserId(owner, id)
+}
+
+func getScimUserCount(owner string) (int64, error) {
+	if owner == "" {
+		return object.GetGlobalUserCount("", "")
+	}
+	return object.GetUserCount(owner, "", "", "")
+}
+
+func getPaginationScimUsers(owner string, offset, limit int) ([]*object.User, error) {
+	if owner == "" {
+		return object.GetPaginationGlobalUsers(offset, limit, "", "", "", "")
+	}
+	return object.GetPaginationUsers(owner, offset, limit, "", "", "", "", "")
 }
