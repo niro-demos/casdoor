@@ -251,6 +251,7 @@ func GetMaskedApplication(application *Application, userId string) *Application 
 	}
 
 	application.ClientSecret = "***"
+	application.RegistrationAccessToken = "***"
 	application.Cert = "***"
 	application.EnablePassword = false
 	application.EnableSigninSession = false
