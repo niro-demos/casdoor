@@ -51,7 +51,7 @@ func InitAPI() {
 	web.Router("/api/get-dashboard-providers", &controllers.ApiController{}, "GET:GetDashboardProviderDistribution")
 	web.Router("/api/get-dashboard-mfa", &controllers.ApiController{}, "GET:GetDashboardMfaCoverage")
 	web.Router("/api/get-dashboard-heatmap", &controllers.ApiController{}, "GET:GetDashboardLoginHeatmap")
-	web.Router("/api/logout", &controllers.ApiController{}, "GET,POST:Logout")
+	web.Router("/api/logout", &controllers.ApiController{}, "POST:Logout")
 	web.Router("/api/sso-logout", &controllers.ApiController{}, "GET,POST:SsoLogout")
 	web.Router("/api/get-account", &controllers.ApiController{}, "GET:GetAccount")
 	web.Router("/api/userinfo", &controllers.ApiController{}, "GET:GetUserinfo")
