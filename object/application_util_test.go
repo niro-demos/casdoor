@@ -16,6 +16,39 @@ package object
 
 import "testing"
 
+func TestGetMaskedApplicationMasksRegistrationAccessTokenForNonAdmin(t *testing.T) {
+	application := &Application{
+		Owner:                   "admin",
+		Name:                    "dcr-app",
+		Organization:            "niro-test",
+		ClientSecret:            "client-secret",
+		RegistrationAccessToken: "registration-token",
+	}
+
+	maskedApplication := GetMaskedApplication(application, "")
+	if maskedApplication.ClientSecret != "***" {
+		t.Fatalf("ClientSecret = %q, want masked", maskedApplication.ClientSecret)
+	}
+	if maskedApplication.RegistrationAccessToken != "***" {
+		t.Fatalf("RegistrationAccessToken = %q, want masked", maskedApplication.RegistrationAccessToken)
+	}
+}
+
+func TestGetMaskedApplicationPreservesRegistrationAccessTokenForGlobalAdmin(t *testing.T) {
+	application := &Application{
+		Owner:                   "admin",
+		Name:                    "dcr-app",
+		Organization:            "niro-test",
+		ClientSecret:            "client-secret",
+		RegistrationAccessToken: "registration-token",
+	}
+
+	maskedApplication := GetMaskedApplication(application, "built-in/admin")
+	if maskedApplication.RegistrationAccessToken != "registration-token" {
+		t.Fatalf("RegistrationAccessToken = %q, want original token", maskedApplication.RegistrationAccessToken)
+	}
+}
+
 func TestRedirectUriMatchesPattern(t *testing.T) {
 	tests := []struct {
 		redirectUri string
