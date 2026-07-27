@@ -15,6 +15,7 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/casdoor/casdoor/i18n"
@@ -135,7 +136,7 @@ func GetMaskedInvitation(invitation *Invitation) *Invitation {
 	return invitation
 }
 
-func UpdateInvitation(id string, invitation *Invitation, lang string) (bool, error) {
+func UpdateInvitation(id string, invitation *Invitation, isGlobalAdmin bool, lang string) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
@@ -144,6 +145,8 @@ func UpdateInvitation(id string, invitation *Invitation, lang string) (bool, err
 		return false, err
 	} else if p == nil {
 		return false, nil
+	} else if !isGlobalAdmin && p.Owner != invitation.Owner {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
 	if isRegexp, err := util.IsRegexp(invitation.Code); err != nil {
