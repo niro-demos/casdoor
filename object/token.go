@@ -147,6 +147,14 @@ func GetTokenByTokenValue(tokenValue, tokenTypeHint string) (*Token, error) {
 	return nil, nil
 }
 
+func TokenBelongsToApplication(token *Token, application *Application) bool {
+	if token == nil || application == nil {
+		return false
+	}
+
+	return token.Owner == application.Owner && token.Application == application.Name
+}
+
 func updateUsedByCode(token *Token) (bool, error) {
 	affected, err := ormer.Engine.Where("code=?", token.Code).Cols("code_is_used").Update(token)
 	if err != nil {
