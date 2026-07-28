@@ -48,6 +48,46 @@ type Token struct {
 	DPoPJkt          string `xorm:"varchar(255) 'dpop_jkt'" json:"dPoPJkt"` // RFC 9449 DPoP JWK thumbprint binding
 }
 
+// GetMaskedToken redacts the token's secret fields (AccessToken, RefreshToken,
+// Code) unless the caller is the token's owner or a global admin. This
+// mirrors the GetMaskedUser pattern used for credential-bearing User fields:
+// non-secret metadata (id, application, organization, user, createdTime,
+// expiresIn, scope) stays visible so admin token-management UIs (list,
+// inspect, revoke) keep working, but the raw bearer credentials -- which are
+// directly replayable against any relying application that trusts this
+// Casdoor instance -- are never exposed to a caller who isn't the token's
+// owner or a global admin.
+func GetMaskedToken(token *Token, isOwnerOrGlobalAdmin bool) *Token {
+	if token == nil || isOwnerOrGlobalAdmin {
+		return token
+	}
+
+	if token.AccessToken != "" {
+		token.AccessToken = "***"
+	}
+	if token.RefreshToken != "" {
+		token.RefreshToken = "***"
+	}
+	if token.Code != "" {
+		token.Code = "***"
+	}
+
+	return token
+}
+
+// GetMaskedTokens redacts secret fields on every token in a listing. Listing
+// endpoints (GetTokens/GetPaginationTokens) can return tokens belonging to
+// many different users in the caller's organization, so -- like
+// GetMaskedUsers does for User listings -- they always mask, regardless of
+// caller privilege. A caller that needs the raw value for a token they own
+// (or as a global admin) fetches it individually via GetToken.
+func GetMaskedTokens(tokens []*Token) []*Token {
+	for _, token := range tokens {
+		GetMaskedToken(token, false)
+	}
+	return tokens
+}
+
 func GetTokenCount(owner, organization, field, value string) (int64, error) {
 	session := GetSession(owner, -1, -1, field, value, "", "")
 	return session.Count(&Token{Organization: organization})
