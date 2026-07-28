@@ -116,6 +116,7 @@
     "The syncer: %s does not exist": "The syncer: %s does not exist",
     "The user: %s doesn't exist": "The user: %s doesn't exist",
     "The user: %s is not found": "The user: %s is not found",
+    "Too many coupon validation attempts, please wait %d seconds and try again": "Too many coupon validation attempts, please wait %d seconds and try again",
     "User is required for User category transaction": "User is required for User category transaction",
     "Wrong userId": "Wrong userId",
     "don't support captchaProvider: ": "don't support captchaProvider: ",
