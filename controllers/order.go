@@ -51,9 +51,13 @@ func (c *ApiController) GetOrders() {
 			}
 		} else {
 			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+			userOwner, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
 			if userErr != nil {
 				c.ResponseError(userErr.Error())
+				return
+			}
+			if owner != userOwner {
+				c.ResponseError("Forbidden")
 				return
 			}
 			orders, err = object.GetUserOrders(owner, userName)
@@ -69,9 +73,13 @@ func (c *ApiController) GetOrders() {
 		limit := util.ParseInt(limit)
 		if !c.IsAdmin() {
 			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+			userOwner, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
 			if userErr != nil {
 				c.ResponseError(userErr.Error())
+				return
+			}
+			if owner != userOwner {
+				c.ResponseError("Forbidden")
 				return
 			}
 			field = "user"
