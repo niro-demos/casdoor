@@ -30,13 +30,15 @@ const GroupExtensionKey = "urn:ietf:params:scim:schemas:extension:enterprise:2.0
 type GroupResourceHandler struct{}
 
 func (h GroupResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
+	owner, scoped := ownerFromRequest(r)
 	resource := &scim.Resource{Attributes: attrs}
-	err := addScimGroup(resource)
+	err := addScimGroup(resource, owner, scoped)
 	return *resource, err
 }
 
 func (h GroupResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := getScimGroup(id)
+	owner, scoped := ownerFromRequest(r)
+	resource, err := getScimGroup(id, owner, scoped)
 	if err != nil {
 		return scim.Resource{}, err
 	}
@@ -47,11 +49,12 @@ func (h GroupResourceHandler) Get(r *http.Request, id string) (scim.Resource, er
 }
 
 func (h GroupResourceHandler) Delete(r *http.Request, id string) error {
+	owner, scoped := ownerFromRequest(r)
 	group, err := object.GetGroup(id)
 	if err != nil {
 		return err
 	}
-	if group == nil {
+	if group == nil || !checkOwnerScope(group.Owner, owner, scoped) {
 		return errors.ScimErrorResourceNotFound(id)
 	}
 	if err := clearGroupMembers(id); err != nil {
@@ -62,8 +65,17 @@ func (h GroupResourceHandler) Delete(r *http.Request, id string) error {
 }
 
 func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	owner, scoped := ownerFromRequest(r)
+	// A scoped (org-admin) caller is confined to its own organization; the
+	// built-in global admin (scoped == false) sees every organization, same
+	// as before.
+	listOwner := ""
+	if scoped {
+		listOwner = owner
+	}
+
 	if params.Count == 0 {
-		count, err := object.GetGroupCount("", "", "")
+		count, err := object.GetGroupCount(listOwner, "", "")
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -71,14 +83,14 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 	}
 
 	// startIndex is 1-based
-	groups, err := object.GetPaginationGroups("", params.StartIndex-1, params.Count, "", "", "", "")
+	groups, err := object.GetPaginationGroups(listOwner, params.StartIndex-1, params.Count, "", "", "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
 
 	resources := make([]scim.Resource, 0, len(groups))
 	for _, group := range groups {
-		resource, err := getScimGroup(group.GetId())
+		resource, err := getScimGroup(group.GetId(), owner, scoped)
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -87,7 +99,7 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 		}
 	}
 
-	totalCount, err := object.GetGroupCount("", "", "")
+	totalCount, err := object.GetGroupCount(listOwner, "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -99,22 +111,24 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 }
 
 func (h GroupResourceHandler) Patch(r *http.Request, id string, operations []scim.PatchOperation) (scim.Resource, error) {
+	owner, scoped := ownerFromRequest(r)
 	group, err := object.GetGroup(id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if group == nil {
+	if group == nil || !checkOwnerScope(group.Owner, owner, scoped) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	return updateScimGroupByPatch(id, group, operations)
 }
 
 func (h GroupResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
+	owner, scoped := ownerFromRequest(r)
 	group, err := object.GetGroup(id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if group == nil {
+	if group == nil || !checkOwnerScope(group.Owner, owner, scoped) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	resource := &scim.Resource{Attributes: attrs}
@@ -122,12 +136,12 @@ func (h GroupResourceHandler) Replace(r *http.Request, id string, attrs scim.Res
 	return *resource, err
 }
 
-func getScimGroup(id string) (*scim.Resource, error) {
+func getScimGroup(id string, owner string, scoped bool) (*scim.Resource, error) {
 	group, err := object.GetGroup(id)
 	if err != nil {
 		return nil, err
 	}
-	if group == nil {
+	if group == nil || !checkOwnerScope(group.Owner, owner, scoped) {
 		return nil, nil
 	}
 	users, err := object.GetGroupUsers(id)
@@ -137,10 +151,14 @@ func getScimGroup(id string) (*scim.Resource, error) {
 	return group2resource(group, users), nil
 }
 
-func addScimGroup(r *scim.Resource) error {
+func addScimGroup(r *scim.Resource, owner string, scoped bool) error {
 	newGroup, err := resource2group(r.Attributes)
 	if err != nil {
 		return err
+	}
+
+	if scoped && newGroup.Owner != owner {
+		return scimErrorForbidden(fmt.Sprintf("caller is not an administrator of organization %q", newGroup.Owner))
 	}
 
 	existing, err := object.GetGroup(newGroup.GetId())
