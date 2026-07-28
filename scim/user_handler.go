@@ -15,6 +15,7 @@
 package scim
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -25,21 +26,39 @@ import (
 
 type UserResourceHandler struct{}
 
+type tenantContextKey struct{}
+
+func WithTenant(ctx context.Context, organization string) context.Context {
+	return context.WithValue(ctx, tenantContextKey{}, organization)
+}
+
+func tenantFromRequest(r *http.Request) string {
+	tenant, _ := r.Context().Value(tenantContextKey{}).(string)
+	return tenant
+}
+
 // https://github.com/elimity-com/scim/blob/master/resource_handler_test.go Example in-memory resource handler
 // https://datatracker.ietf.org/doc/html/rfc7644#section-3.4 How to query/update resources
 
 func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
 	resource := &scim.Resource{Attributes: attrs}
+	if err := requireResourceTenant(resource, tenantFromRequest(r)); err != nil {
+		return scim.Resource{}, err
+	}
 	err := AddScimUser(resource)
 	return *resource, err
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
+	tenant := tenantFromRequest(r)
 	resource, err := GetScimUser(id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
 	if resource == nil {
+		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+	}
+	if err := requireResourceTenant(resource, tenant); err != nil {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	return *resource, nil
@@ -53,13 +72,23 @@ func (h UserResourceHandler) Delete(r *http.Request, id string) error {
 	if user == nil {
 		return errors.ScimErrorResourceNotFound(id)
 	}
+	if tenant := tenantFromRequest(r); tenant != "" && user.Owner != tenant {
+		return errors.ScimErrorResourceNotFound(id)
+	}
 	_, err = object.DeleteUser(user)
 	return err
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	tenant := tenantFromRequest(r)
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		var count int64
+		var err error
+		if tenant == "" {
+			count, err = object.GetGlobalUserCount("", "")
+		} else {
+			count, err = object.GetUserCount(tenant, "", "", "")
+		}
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -68,7 +97,13 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 
 	resources := make([]scim.Resource, 0)
 	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	var users []*object.User
+	var err error
+	if tenant == "" {
+		users, err = object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	} else {
+		users, err = object.GetPaginationUsers(tenant, params.StartIndex-1, params.Count, "", "", "", "", "")
+	}
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -89,7 +124,18 @@ func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim
 	if user == nil {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
-	return UpdateScimUserByPatchOperation(id, operations)
+	tenant := tenantFromRequest(r)
+	if tenant != "" && user.Owner != tenant {
+		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+	}
+	resource, err := UpdateScimUserByPatchOperation(id, operations)
+	if err != nil {
+		return scim.Resource{}, err
+	}
+	if err := requireResourceTenant(&resource, tenant); err != nil {
+		return scim.Resource{}, err
+	}
+	return resource, nil
 }
 
 func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
@@ -100,9 +146,38 @@ func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.Reso
 	if user == nil {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
+	tenant := tenantFromRequest(r)
+	if tenant != "" && user.Owner != tenant {
+		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+	}
 	resource := &scim.Resource{Attributes: attrs}
+	if err := requireResourceTenant(resource, tenant); err != nil {
+		return scim.Resource{}, err
+	}
 	err = UpdateScimUser(id, resource)
 	return *resource, err
+}
+
+func requireResourceTenant(resource *scim.Resource, tenant string) error {
+	if tenant == "" {
+		return nil
+	}
+	organization := resourceTenant(resource.Attributes)
+	if organization != tenant {
+		return errors.ScimErrorBadParams([]string{UserExtensionKey + ".organization"})
+	}
+	return nil
+}
+
+func resourceTenant(attrs scim.ResourceAttributes) string {
+	switch extension := attrs[UserExtensionKey].(type) {
+	case scim.ResourceAttributes:
+		return ToString(extension["organization"], "")
+	case map[string]interface{}:
+		return ToString(extension["organization"], "")
+	default:
+		return ""
+	}
 }
 
 func GetScimUser(id string) (*scim.Resource, error) {

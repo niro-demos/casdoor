@@ -45,7 +45,16 @@ func (c *ApiController) GetRecords() {
 	organizationName := c.Ctx.Input.Query("organizationName")
 
 	if limit == "" || page == "" {
-		records, err := object.GetRecords()
+		var records []*object.Record
+		var err error
+		if c.IsGlobalAdmin() && organizationName == "" {
+			records, err = object.GetRecords()
+		} else {
+			if c.IsGlobalAdmin() && organizationName != "" {
+				organization = organizationName
+			}
+			records, err = object.GetRecordsByField(&object.Record{Organization: organization})
+		}
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
