@@ -241,6 +241,39 @@ func (c *ApiController) UploadResource() {
 		return
 	}
 
+	// owner/user/tag are attacker-controlled query parameters and must never
+	// be trusted for authorization by themselves. Derive the real caller from
+	// the session (via IsAdmin()/IsAdminOrSelf(), same as the rest of this
+	// controller) and enforce it here, before anything is written to storage
+	// or the database, for every tag that mutates another record on the
+	// caller's behalf.
+	switch tag {
+	case "avatar", "idCardFront", "idCardBack", "idCardWithPerson":
+		targetUser, err := object.GetUserNoCheck(util.GetId(owner, username))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		if targetUser == nil {
+			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(owner, username)))
+			return
+		}
+
+		if !c.IsAdminOrSelf(targetUser) {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	case "termsOfUse":
+		// termsOfUse is application-scoped, not user-scoped: owner/user here
+		// name who is attempting the change, not the record being written.
+		// Only an actual admin session (global or org) may set it.
+		if !c.IsAdmin() {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	}
+
 	filename := filepath.Base(fullFilePath)
 	fileBuffer := bytes.NewBuffer(nil)
 	if _, err = io.Copy(fileBuffer, file); err != nil {
@@ -321,6 +354,12 @@ func (c *ApiController) UploadResource() {
 		return
 	}
 
+	// Authorization for avatar/idCard*/termsOfUse was already established
+	// above, against the real session, before any of this function's writes
+	// happened. These branches only need to (re-)fetch the record and apply
+	// the mutation; owner/username are safe to use as the write target here
+	// because the check above already proved the caller is entitled to act
+	// on them.
 	switch tag {
 	case "avatar":
 		user, err := object.GetUserNoCheck(util.GetId(owner, username))
@@ -342,22 +381,6 @@ func (c *ApiController) UploadResource() {
 		}
 
 	case "termsOfUse":
-		user, err := object.GetUserNoCheck(util.GetId(owner, username))
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
-
-		if user == nil {
-			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(owner, username)))
-			return
-		}
-
-		if !user.IsAdminUser() {
-			c.ResponseError(c.T("auth:Unauthorized operation"))
-			return
-		}
-
 		_, applicationId := util.GetOwnerAndNameFromIdNoCheck(strings.TrimSuffix(fullFilePath, ".html"))
 		applicationObj, err := object.GetApplication(applicationId)
 		if err != nil {
