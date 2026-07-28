@@ -674,7 +674,34 @@ func (c *ApiController) SetPassword() {
 		return
 	}
 
+	err = revokeUserSessionsAfterPasswordChange(targetUser)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	c.ResponseOk()
+}
+
+func revokeUserSessionsAfterPasswordChange(user *object.User) error {
+	_, err := object.ExpireTokenByUser(user.Owner, user.Name)
+	if err != nil {
+		return err
+	}
+
+	sessions, err := object.GetUserSessions(user.Owner, user.Name)
+	if err != nil {
+		return err
+	}
+
+	sessionIds := []string{}
+	for _, session := range sessions {
+		sessionIds = append(sessionIds, session.SessionId...)
+	}
+	object.DeleteBeegoSession(sessionIds)
+
+	_, err = object.DeleteAllUserSessions(user.Owner, user.Name)
+	return err
 }
 
 // CheckUserPassword
