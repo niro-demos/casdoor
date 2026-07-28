@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/beego/beego/v2/server/web/context"
+	"github.com/casdoor/casdoor/conf"
 	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/idp"
 	"github.com/casdoor/casdoor/idv"
@@ -31,6 +32,17 @@ import (
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
 )
+
+// isProdRunmode reports whether Casdoor is configured to run in production
+// (conf/app.conf `runmode = prod`, overridable via the `runmode` env var) —
+// the same switch pp/stripe.go, pp/adyen.go, pp/paddle.go, pp/paypal.go and
+// pp/airwallex.go already use to pick a live vs. sandbox payment gateway.
+// It gates the built-in Dummy payment provider (pp/dummy.go), which
+// self-confirms every payment as Paid without ever contacting a real
+// gateway: that provider must only be reachable outside production.
+func isProdRunmode() bool {
+	return conf.GetConfigString("runmode") == "prod"
+}
 
 type Provider struct {
 	Owner       string `xorm:"varchar(100) notnull pk" json:"owner"`
@@ -346,6 +358,9 @@ func GetPaymentProvider(p *Provider) (pp.PaymentProvider, error) {
 	}
 	typ := p.Type
 	if typ == "Dummy" {
+		if isProdRunmode() {
+			return nil, fmt.Errorf("the Dummy payment provider: %s is test-only and is disabled when runmode is \"prod\"", p.Name)
+		}
 		pp, err := pp.NewDummyPaymentProvider()
 		if err != nil {
 			return nil, err
