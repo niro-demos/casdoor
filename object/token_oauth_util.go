@@ -104,6 +104,90 @@ type DeviceAuthCache struct {
 	ExpiresIn     int
 }
 
+func CanGrantConsentToApplication(user *User, application *Application) bool {
+	return user != nil && application != nil && user.Owner == application.Organization
+}
+
+func CanUseTokenWithApplication(application *Application, token *Token) bool {
+	return application != nil && token != nil &&
+		token.Owner == application.Owner &&
+		token.Application == application.Name &&
+		token.Organization == application.Organization
+}
+
+func CanIntrospectToken(application *Application, token *Token) bool {
+	return CanUseTokenWithApplication(application, token)
+}
+
+func TokenScopeIntersects(token *Token, scopes []string) bool {
+	if token == nil || len(scopes) == 0 {
+		return false
+	}
+
+	tokenScopes := map[string]bool{}
+	for _, scope := range strings.Fields(token.Scope) {
+		tokenScopes[scope] = true
+	}
+	for _, scope := range scopes {
+		if tokenScopes[scope] {
+			return true
+		}
+	}
+	return false
+}
+
+func IsDeviceAuthExpired(cache DeviceAuthCache, now time.Time) bool {
+	expiresIn := cache.ExpiresIn
+	if expiresIn == 0 {
+		expiresIn = DeviceAuthExpiresIn
+	}
+	return cache.RequestAt.Add(time.Duration(expiresIn) * time.Second).Before(now)
+}
+
+func UpdateUserApplicationScopesAndExpireTokens(user *User, applicationId string, revokedScopes []string) (bool, error) {
+	applicationOwner, applicationName, err := util.GetOwnerAndNameFromIdWithError(applicationId)
+	if err != nil {
+		return false, err
+	}
+
+	session := ormer.Engine.NewSession()
+	defer session.Close()
+
+	if err = session.Begin(); err != nil {
+		return false, err
+	}
+
+	affected, err := session.ID(core.PK{user.Owner, user.Name}).Cols("application_scopes").Update(user)
+	if err != nil {
+		_ = session.Rollback()
+		return false, err
+	}
+
+	tokens := []*Token{}
+	err = session.Where("owner = ? and application = ? and organization = ? and user = ? and expires_in > 0",
+		applicationOwner, applicationName, user.Owner, user.Name).Find(&tokens)
+	if err != nil {
+		_ = session.Rollback()
+		return false, err
+	}
+
+	for _, token := range tokens {
+		if !TokenScopeIntersects(token, revokedScopes) {
+			continue
+		}
+		_, err = session.ID(core.PK{token.Owner, token.Name}).Cols("expires_in").Update(&Token{ExpiresIn: 0})
+		if err != nil {
+			_ = session.Rollback()
+			return false, err
+		}
+	}
+
+	if err = session.Commit(); err != nil {
+		return false, err
+	}
+	return affected != 0, nil
+}
+
 func InitCleanupDeviceAuthMap() {
 	InitDeviceAuthStore()
 	util.SafeGoroutine(func() {
@@ -113,11 +197,7 @@ func InitCleanupDeviceAuthMap() {
 			now := time.Now()
 			DeviceAuthMap.Range(func(key, value any) bool {
 				cache := value.(DeviceAuthCache)
-				expiresIn := cache.ExpiresIn
-				if expiresIn == 0 {
-					expiresIn = DeviceAuthExpiresIn
-				}
-				if cache.RequestAt.Add(time.Duration(expiresIn) * time.Second).Before(now) {
+				if IsDeviceAuthExpired(cache, now) {
 					DeviceAuthMap.Delete(key)
 				}
 				return true
@@ -434,6 +514,12 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		return &TokenError{
 			Error:            InvalidGrant,
 			ErrorDescription: "refresh token is expired",
+		}, nil
+	}
+	if !CanUseTokenWithApplication(application, token) {
+		return &TokenError{
+			Error:            InvalidGrant,
+			ErrorDescription: "refresh token is invalid or revoked",
 		}, nil
 	}
 

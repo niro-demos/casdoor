@@ -283,7 +283,7 @@ func (c *ApiController) GetOAuthToken() {
 
 		deviceAuthCacheCast := deviceAuthCache.(object.DeviceAuthCache)
 
-		if deviceAuthCacheCast.RequestAt.Add(time.Second * object.DeviceAuthExpiresIn).Before(time.Now()) {
+		if object.IsDeviceAuthExpired(deviceAuthCacheCast, time.Now()) {
 			object.DeviceAuthMap.Delete(deviceCode)
 			c.Data["json"] = &object.TokenError{
 				Error:            "expired_token",
@@ -510,6 +510,7 @@ func (c *ApiController) IntrospectToken() {
 	if err != nil || !ok {
 		return
 	}
+	requestingApplication := application
 
 	respondWithInactiveToken := func() {
 		c.Data["json"] = &object.IntrospectionResponse{Active: false}
@@ -606,6 +607,11 @@ func (c *ApiController) IntrospectToken() {
 	}
 
 	if token != nil {
+		if !object.CanIntrospectToken(requestingApplication, token) {
+			respondWithInactiveToken()
+			return
+		}
+
 		application, err = object.GetApplication(fmt.Sprintf("%s/%s", token.Owner, token.Application))
 		if err != nil {
 			c.ResponseTokenError(object.InvalidClient, err.Error())

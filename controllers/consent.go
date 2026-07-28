@@ -89,7 +89,7 @@ func (c *ApiController) RevokeConsent() {
 		// otherwise the application authorization is revoked, delete the whole record
 	}
 	userObj.ApplicationScopes = newScopes
-	success, err := object.UpdateUser(userObj.GetId(), userObj, nil, false)
+	success, err := object.UpdateUserApplicationScopesAndExpireTokens(userObj, consent.Application, consent.GrantedScopes)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -157,6 +157,10 @@ func (c *ApiController) GrantConsent() {
 	}
 	if userObj == nil {
 		c.ResponseError(c.T("general:User not found"))
+		return
+	}
+	if !object.CanGrantConsentToApplication(userObj, application) {
+		c.ResponseError(c.T("general:Invalid application"))
 		return
 	}
 
