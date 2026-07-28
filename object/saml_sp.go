@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/casdoor/casdoor/conf"
 	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/idp"
 	"github.com/mitchellh/mapstructure"
@@ -30,8 +31,17 @@ import (
 )
 
 // IsValidSamlRedirectURL checks that the redirect URL in the SAML RelayState
-// points to the same origin as this Casdoor instance, preventing open redirect attacks.
-func IsValidSamlRedirectURL(redirectURL, host string) bool {
+// points to this Casdoor instance's own configured origin, preventing open
+// redirect attacks.
+//
+// The comparison is anchored only to the server's own `origin` /
+// `originFrontend` config values (conf/app.conf), never to the request's
+// Host header: this is an unauthenticated endpoint, so the Host header is
+// fully attacker-controlled, and validating against it would make the check
+// a tautology the attacker can always satisfy. If neither origin config
+// value is set, the redirect is rejected (fail closed) instead of falling
+// back to an untrusted, request-derived value.
+func IsValidSamlRedirectURL(redirectURL string) bool {
 	if redirectURL == "" {
 		return false
 	}
@@ -39,12 +49,29 @@ func IsValidSamlRedirectURL(redirectURL, host string) bool {
 	if err != nil || parsed.Host == "" {
 		return false
 	}
-	_, origin := getOriginFromHost(host)
-	originParsed, err := url.Parse(origin)
-	if err != nil {
-		return false
+
+	for _, origin := range trustedSamlOrigins() {
+		originParsed, err := url.Parse(origin)
+		if err == nil && originParsed.Host != "" && parsed.Host == originParsed.Host {
+			return true
+		}
 	}
-	return parsed.Host == originParsed.Host
+	return false
+}
+
+// trustedSamlOrigins returns the origins this instance is willing to redirect
+// the SAML ACS callback back to. It is built exclusively from server-side
+// config, never from any per-request value, so it cannot be influenced by an
+// attacker-supplied Host header.
+func trustedSamlOrigins() []string {
+	var origins []string
+	if origin := conf.GetConfigString("origin"); origin != "" {
+		origins = append(origins, origin)
+	}
+	if originFrontend := conf.GetConfigString("originFrontend"); originFrontend != "" {
+		origins = append(origins, originFrontend)
+	}
+	return origins
 }
 
 func ParseSamlResponse(samlResponse string, provider *Provider, host string) (*idp.UserInfo, error) {
