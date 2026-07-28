@@ -1070,7 +1070,7 @@ func (c *ApiController) Login() {
 					}
 
 					var affected bool
-					affected, err = object.AddUser(user, c.GetAcceptLanguage())
+					affected, err = object.AddSignupUser(user, application, organization, &authForm, invitation, c.GetAcceptLanguage())
 					if err != nil {
 						c.ResponseError(err.Error())
 						return
@@ -1079,16 +1079,6 @@ func (c *ApiController) Login() {
 					if !affected {
 						c.ResponseError(fmt.Sprintf(c.T("auth:Failed to create user, user information is invalid: %s"), util.StructToJson(user)))
 						return
-					}
-
-					// Increment invitation usage count
-					if invitation != nil {
-						invitation.UsedCount += 1
-						_, err = object.UpdateInvitation(invitation.GetId(), invitation, c.GetAcceptLanguage())
-						if err != nil {
-							c.ResponseError(err.Error())
-							return
-						}
 					}
 				}
 

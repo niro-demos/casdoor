@@ -15,8 +15,10 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/casdoor/casdoor/form"
 	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
@@ -192,6 +194,69 @@ func DeleteInvitation(invitation *Invitation) (bool, error) {
 	}
 
 	return affected != 0, nil
+}
+
+func AddSignupUser(user *User, application *Application, organization *Organization, authForm *form.AuthForm, invitation *Invitation, lang string) (bool, error) {
+	if err := prepareUserForAdd(user, lang); err != nil {
+		return false, err
+	}
+
+	session := ormer.Engine.NewSession()
+	defer session.Close()
+
+	if err := session.Begin(); err != nil {
+		return false, err
+	}
+
+	if invitation != nil {
+		currentInvitation := Invitation{Owner: invitation.Owner, Name: invitation.Name}
+		existed, err := session.ForUpdate().Get(&currentInvitation)
+		if err != nil {
+			_ = session.Rollback()
+			return false, err
+		}
+		if !existed {
+			_ = session.Rollback()
+			return false, errors.New(i18n.Translate(lang, "check:Invitation code is invalid"))
+		}
+		if isValid, msg := currentInvitation.IsInvitationCodeValid(application, authForm.InvitationCode, authForm.Username, authForm.Email, authForm.Phone, lang); !isValid {
+			_ = session.Rollback()
+			return false, errors.New(msg)
+		}
+
+		affected, err := session.ID(core.PK{currentInvitation.Owner, currentInvitation.Name}).
+			Where("used_count < quota").
+			Incr("used_count", 1).
+			Update(&Invitation{})
+		if err != nil {
+			_ = session.Rollback()
+			return false, err
+		}
+		if affected == 0 {
+			_ = session.Rollback()
+			return false, errors.New(i18n.Translate(lang, "check:Invitation code exhausted"))
+		}
+	}
+
+	affected, err := insertUserWithSession(session, user)
+	if err != nil {
+		_ = session.Rollback()
+		return false, err
+	}
+	if !affected {
+		_ = session.Rollback()
+		return false, nil
+	}
+
+	if err := session.Commit(); err != nil {
+		return false, err
+	}
+
+	if err := syncUserGroups(user); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (invitation *Invitation) GetId() string {
