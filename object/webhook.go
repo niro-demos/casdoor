@@ -151,6 +151,10 @@ func UpdateWebhook(id string, webhook *Webhook, isGlobalAdmin bool, lang string)
 		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
+	if err := util.ValidateOutboundUrl(webhook.Url); err != nil {
+		return false, err
+	}
+
 	affected, err := ormer.Engine.ID(core.PK{owner, name}).Where("organization = ?", w.Organization).AllCols().Update(webhook)
 	if err != nil {
 		return false, err
@@ -160,6 +164,10 @@ func UpdateWebhook(id string, webhook *Webhook, isGlobalAdmin bool, lang string)
 }
 
 func AddWebhook(webhook *Webhook) (bool, error) {
+	if err := util.ValidateOutboundUrl(webhook.Url); err != nil {
+		return false, err
+	}
+
 	affected, err := ormer.Engine.Insert(webhook)
 	if err != nil {
 		return false, err
