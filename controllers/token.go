@@ -49,7 +49,7 @@ func (c *ApiController) GetTokens() {
 			return
 		}
 
-		c.ResponseOk(token)
+		c.ResponseOk(object.GetMaskedTokens(token))
 	} else {
 		limit := util.ParseInt(limit)
 		count, err := object.GetTokenCount(owner, organization, field, value)
@@ -65,7 +65,7 @@ func (c *ApiController) GetTokens() {
 			return
 		}
 
-		c.ResponseOk(tokens, paginator.Nums())
+		c.ResponseOk(object.GetMaskedTokens(tokens), paginator.Nums())
 	}
 }
 
@@ -90,13 +90,14 @@ func (c *ApiController) GetToken() {
 		return
 	}
 
-	isGlobalAdmin, _ := c.isGlobalAdmin()
+	isGlobalAdmin, currentUser := c.isGlobalAdmin()
 	if token.Organization != organization && !isGlobalAdmin {
 		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return
 	}
 
-	c.ResponseOk(token)
+	isOwner := currentUser != nil && currentUser.Owner == token.Organization && currentUser.Name == token.User
+	c.ResponseOk(object.GetMaskedToken(token, isGlobalAdmin || isOwner))
 }
 
 // UpdateToken
