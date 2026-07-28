@@ -156,6 +156,7 @@
     "the provider: %s does not exist": "provider: %s bulunamadı"
   },
   "resource": {
+    "This file type is not allowed to be uploaded": "This file type is not allowed to be uploaded",
     "User is nil for tag: avatar": "Kullanıcı nil avatar etiketi için",
     "Username or fullFilePath is empty: username = %s, fullFilePath = %s": "Kullanıcı adı veya fullFilePath boş: username = %s, fullFilePath = %s"
   },

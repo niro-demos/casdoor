@@ -205,6 +205,69 @@ func (c *ApiController) DeleteResource() {
 	c.ServeJSON()
 }
 
+// disallowedUploadExtensions are file extensions whose content a browser
+// will parse and execute as script/markup, rather than treat as inert data,
+// when served back as a plain static response.
+var disallowedUploadExtensions = map[string]bool{
+	".html":  true,
+	".htm":   true,
+	".xhtml": true,
+	".svg":   true,
+	".js":    true,
+	".mjs":   true,
+}
+
+// disallowedUploadContentTypes mirrors disallowedUploadExtensions for MIME
+// types, so a file whose extension doesn't match its declared/inferred
+// content type is still caught.
+var disallowedUploadContentTypes = map[string]bool{
+	"text/html":              true,
+	"application/xhtml+xml":  true,
+	"image/svg+xml":          true,
+	"application/javascript": true,
+	"text/javascript":        true,
+}
+
+// isUploadFileTypeBlocked reports whether an uploaded file's extension or
+// declared content type is one that a browser would parse and execute as
+// script/markup if Casdoor's static "/files" handler ever served it back on
+// the identity provider's own cookied origin (TC-535DF2D7: stored XSS via
+// unrestricted resource upload).
+//
+// The one legitimate exception is an org/global admin uploading an
+// application's "termsOfUse" HTML document (see the "termsOfUse" tag case in
+// UploadResource below): that content is admin-authored and only ever loaded
+// via srcDoc into a modal, never navigated to directly, so it's allowed
+// through for that tag when the caller is actually an admin. tag alone is
+// client-supplied and must never be trusted on its own -- isAdmin must come
+// from the authenticated session (ApiController.IsAdmin()), not from a
+// request parameter, or this exception would just become a second bypass.
+func isUploadFileTypeBlocked(filename, contentType, tag string, isAdmin bool) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+
+	if tag == "termsOfUse" && isAdmin && ext == ".html" {
+		return false
+	}
+
+	if disallowedUploadExtensions[ext] {
+		return true
+	}
+
+	if extMimeType := mime.TypeByExtension(ext); extMimeType != "" {
+		if base, _, err := mime.ParseMediaType(extMimeType); err == nil && disallowedUploadContentTypes[strings.ToLower(base)] {
+			return true
+		}
+	}
+
+	if contentType != "" {
+		if base, _, err := mime.ParseMediaType(contentType); err == nil && disallowedUploadContentTypes[strings.ToLower(base)] {
+			return true
+		}
+	}
+
+	return false
+}
+
 // UploadResource
 // @Tag Resource API
 // @Title UploadResource
@@ -242,6 +305,11 @@ func (c *ApiController) UploadResource() {
 	}
 
 	filename := filepath.Base(fullFilePath)
+	if isUploadFileTypeBlocked(filename, header.Header.Get("Content-Type"), tag, c.IsAdmin()) {
+		c.ResponseError(c.T("resource:This file type is not allowed to be uploaded"))
+		return
+	}
+
 	fileBuffer := bytes.NewBuffer(nil)
 	if _, err = io.Copy(fileBuffer, file); err != nil {
 		c.ResponseError(err.Error())

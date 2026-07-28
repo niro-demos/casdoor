@@ -156,6 +156,7 @@
     "the provider: %s does not exist": "Nhà cung cấp: %s không tồn tại"
   },
   "resource": {
+    "This file type is not allowed to be uploaded": "This file type is not allowed to be uploaded",
     "User is nil for tag: avatar": "Người dùng không có giá trị cho thẻ: hình đại diện",
     "Username or fullFilePath is empty: username = %s, fullFilePath = %s": "Tên người dùng hoặc đường dẫn tệp đầy đủ trống: tên người dùng = %s, đường dẫn tệp đầy đủ = %s"
   },

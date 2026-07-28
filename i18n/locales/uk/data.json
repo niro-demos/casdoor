@@ -156,6 +156,7 @@
     "the provider: %s does not exist": "провайдер: %s не існує"
   },
   "resource": {
+    "This file type is not allowed to be uploaded": "This file type is not allowed to be uploaded",
     "User is nil for tag: avatar": "Користувач nil для тегу: avatar",
     "Username or fullFilePath is empty: username = %s, fullFilePath = %s": "Ім’я користувача або fullFilePath порожні: username = %s, fullFilePath = %s"
   },

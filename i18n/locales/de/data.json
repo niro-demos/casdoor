@@ -156,6 +156,7 @@
     "the provider: %s does not exist": "Der Anbieter %s existiert nicht"
   },
   "resource": {
+    "This file type is not allowed to be uploaded": "This file type is not allowed to be uploaded",
     "User is nil for tag: avatar": "Benutzer ist null für Tag: Avatar",
     "Username or fullFilePath is empty: username = %s, fullFilePath = %s": "Benutzername oder vollständiger Dateipfad sind leer: Benutzername = %s, vollständiger Dateipfad = %s"
   },
