@@ -17,13 +17,6 @@
 
 package controllers
 
-import (
-	"fmt"
-
-	"github.com/casdoor/casdoor/object"
-	"github.com/casdoor/casdoor/util"
-)
-
 // FaceIDSigninBegin
 // @Title FaceIDSigninBegin
 // @Tag Login API
@@ -33,23 +26,5 @@ import (
 // @Success 200 {object} controllers.Response The Response object
 // @router /faceid-signin-begin [get]
 func (c *ApiController) FaceIDSigninBegin() {
-	userOwner := c.Ctx.Input.Query("owner")
-	userName := c.Ctx.Input.Query("name")
-
-	user, err := object.GetUserByFields(userOwner, userName)
-	if err != nil {
-		c.ResponseError(err.Error())
-		return
-	}
-	if user == nil {
-		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(userOwner, userName)))
-		return
-	}
-
-	if len(user.FaceIds) == 0 {
-		c.ResponseError(c.T("check:Face data does not exist, cannot log in"))
-		return
-	}
-
 	c.ResponseOk()
 }
