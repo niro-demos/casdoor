@@ -1319,7 +1319,7 @@ func (c *ApiController) HandleSamlLogin() {
 		return
 	}
 	redirectTarget := slice[4]
-	if !object.IsValidSamlRedirectURL(redirectTarget, c.Ctx.Request.Host) {
+	if !object.IsValidSamlRedirectURL(redirectTarget) {
 		c.ResponseError("invalid redirect URL in RelayState: must point to this Casdoor instance")
 		return
 	}
