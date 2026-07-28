@@ -156,6 +156,7 @@
     "the provider: %s does not exist": "提供商: %s不存在"
   },
   "resource": {
+    "This file type is not allowed to be uploaded": "This file type is not allowed to be uploaded",
     "User is nil for tag: avatar": "上传头像时用户为空",
     "Username or fullFilePath is empty: username = %s, fullFilePath = %s": "username或fullFilePath为空: username = %s, fullFilePath = %s"
   },

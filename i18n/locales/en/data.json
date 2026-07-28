@@ -156,6 +156,7 @@
     "the provider: %s does not exist": "the provider: %s does not exist"
   },
   "resource": {
+    "This file type is not allowed to be uploaded": "This file type is not allowed to be uploaded",
     "User is nil for tag: avatar": "User is nil for tag: avatar",
     "Username or fullFilePath is empty: username = %s, fullFilePath = %s": "Username or fullFilePath is empty: username = %s, fullFilePath = %s"
   },

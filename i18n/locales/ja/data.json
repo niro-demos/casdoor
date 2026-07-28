@@ -156,6 +156,7 @@
     "the provider: %s does not exist": "プロバイダー%sは存在しません"
   },
   "resource": {
+    "This file type is not allowed to be uploaded": "This file type is not allowed to be uploaded",
     "User is nil for tag: avatar": "ユーザーはタグ「アバター」に対してnilです",
     "Username or fullFilePath is empty: username = %s, fullFilePath = %s": "ユーザー名または完全なファイルパスが空です：ユーザー名 = %s、完全なファイルパス = %s"
   },
