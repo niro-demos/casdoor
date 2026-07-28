@@ -111,7 +111,33 @@ func (c *ApiController) GetSubscription() {
 		return
 	}
 
+	if !c.IsAdmin() {
+		sessionUser := c.GetSessionUsername()
+		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if subscriptionAccessForbidden(sessionUserOwner, sessionUserName, subscription) {
+			c.ResponseError("Forbidden")
+			return
+		}
+	}
+
 	c.ResponseOk(subscription)
+}
+
+// subscriptionAccessForbidden reports whether a non-admin caller identified
+// by sessionUserOwner/sessionUserName is forbidden from reading subscription.
+// It mirrors the ownership check GetOrder/GetPayment already apply to their
+// records (controllers/order.go, controllers/payment.go): a non-admin caller
+// may only read a subscription that belongs to their own tenant (Owner) and
+// identifies them as the subscriber (User).
+func subscriptionAccessForbidden(sessionUserOwner, sessionUserName string, subscription *object.Subscription) bool {
+	if subscription == nil {
+		return false
+	}
+	return subscription.Owner != sessionUserOwner || subscription.User != sessionUserName
 }
 
 // UpdateSubscription
