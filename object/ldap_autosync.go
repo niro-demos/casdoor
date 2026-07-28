@@ -36,11 +36,11 @@ func GetLdapAutoSynchronizer() *LdapAutoSynchronizer {
 
 // StartAutoSync
 // start autosync for specified ldap, old existing autosync goroutine will be ceased
-func (l *LdapAutoSynchronizer) StartAutoSync(ldapId string) error {
+func (l *LdapAutoSynchronizer) StartAutoSync(owner string, ldapId string) error {
 	l.Lock()
 	defer l.Unlock()
 
-	ldap, err := GetLdap(ldapId)
+	ldap, err := GetLdap(owner, ldapId)
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func (l *LdapAutoSynchronizer) LdapAutoSynchronizerStartUpAll() error {
 
 		for _, ldap := range ldaps {
 			if ldap.AutoSync != 0 {
-				err = l.StartAutoSync(ldap.Id)
+				err = l.StartAutoSync(ldap.Owner, ldap.Id)
 				if err != nil {
 					return err
 				}

@@ -91,12 +91,16 @@ func GetLdaps(owner string) ([]*Ldap, error) {
 	return ldaps, nil
 }
 
-func GetLdap(id string) (*Ldap, error) {
-	if util.IsStringsEmpty(id) {
+// GetLdap looks up an LDAP server row scoped to the organization that owns
+// it. Both owner and id are required and filtered together in the query, so
+// a caller can never resolve a record belonging to a different organization
+// by supplying only its bare id -- see TC-C5AF83D7.
+func GetLdap(owner string, id string) (*Ldap, error) {
+	if util.IsStringsEmpty(owner, id) {
 		return nil, nil
 	}
 
-	ldap := Ldap{Id: id}
+	ldap := Ldap{Owner: owner, Id: id}
 	existed, err := ormer.Engine.Get(&ldap)
 	if err != nil {
 		return &ldap, nil
@@ -143,7 +147,7 @@ func GetMaskedLdaps(ldaps []*Ldap, errs ...error) ([]*Ldap, error) {
 func UpdateLdap(ldap *Ldap) (bool, error) {
 	var l *Ldap
 	var err error
-	if l, err = GetLdap(ldap.Id); err != nil {
+	if l, err = GetLdap(ldap.Owner, ldap.Id); err != nil {
 		return false, nil
 	} else if l == nil {
 		return false, nil

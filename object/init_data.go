@@ -395,7 +395,7 @@ func initDefinedCert(cert *Cert) {
 }
 
 func initDefinedLdap(ldap *Ldap) {
-	existed, err := GetLdap(ldap.Id)
+	existed, err := GetLdap(ldap.Owner, ldap.Id)
 	if err != nil {
 		panic(err)
 	}

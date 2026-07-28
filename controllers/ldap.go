@@ -48,18 +48,28 @@ type LdapSyncResp struct {
 func (c *ApiController) GetLdapUsers() {
 	id := c.Ctx.Input.Query("id")
 
-	_, ldapId, err := util.GetOwnerAndNameFromIdWithError(id)
+	owner, ldapId, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
-	ldapServer, err := object.GetLdap(ldapId)
+	ldapServer, err := object.GetLdap(owner, ldapId)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
 	if ldapServer == nil {
 		c.ResponseError(fmt.Sprintf(c.T("general:The LDAP: %s does not exist"), ldapId))
+		return
+	}
+	// Defense in depth: GetLdap() already filters by owner in the DB query,
+	// so this can never actually differ from `owner`, but keep an explicit
+	// check here in case that filtering is ever weakened or bypassed --
+	// see TC-C5AF83D7 (owner-prefix relabeling let a caller resolve another
+	// organization's LDAP server by wrapping its bare id in their own org
+	// name).
+	if ldapServer.Owner != owner {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return
 	}
 
@@ -134,14 +144,24 @@ func (c *ApiController) GetLdap() {
 		return
 	}
 
-	_, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
-	ldap, err := object.GetLdap(name)
+	ldap, err := object.GetLdap(owner, name)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+	// Defense in depth: GetLdap() already filters by owner in the DB query,
+	// so this can never actually differ from `owner`, but keep an explicit
+	// check here in case that filtering is ever weakened or bypassed --
+	// see TC-C5AF83D7 (owner-prefix relabeling let a caller resolve another
+	// organization's LDAP server by wrapping its bare id in their own org
+	// name).
+	if ldap != nil && ldap.Owner != owner {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return
 	}
 	c.ResponseOk(object.GetMaskedLdap(ldap))
@@ -179,7 +199,7 @@ func (c *ApiController) AddLdap() {
 	resp.Data2 = ldap
 
 	if ldap.AutoSync != 0 {
-		err = object.GetLdapAutoSynchronizer().StartAutoSync(ldap.Id)
+		err = object.GetLdapAutoSynchronizer().StartAutoSync(ldap.Owner, ldap.Id)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
@@ -205,7 +225,7 @@ func (c *ApiController) UpdateLdap() {
 		return
 	}
 
-	prevLdap, err := object.GetLdap(ldap.Id)
+	prevLdap, err := object.GetLdap(ldap.Owner, ldap.Id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -222,7 +242,7 @@ func (c *ApiController) UpdateLdap() {
 	}
 
 	if ldap.AutoSync != 0 {
-		err := object.GetLdapAutoSynchronizer().StartAutoSync(ldap.Id)
+		err := object.GetLdapAutoSynchronizer().StartAutoSync(ldap.Owner, ldap.Id)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
