@@ -516,7 +516,12 @@ func ClearUserOAuthProperties(user *User, providerType string) (bool, error) {
 
 func userVisible(isAdmin bool, item *AccountItem) bool {
 	if item == nil {
-		return true
+		// Fail closed: an organization that has no configured AccountItem for
+		// this field has made no explicit statement that non-admins may write
+		// it, so only admins may. Returning true here unconditionally used to
+		// let any standard user modify an undeclared field (including
+		// "Is admin") on themselves - see TC-9DF8B356.
+		return isAdmin
 	}
 
 	if item.ViewRule == "Admin" && !isAdmin {
