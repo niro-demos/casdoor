@@ -45,8 +45,14 @@ func GetResourceCount(owner, user, field, value string) (int64, error) {
 	return session.Count(&Resource{User: user})
 }
 
-func GetResources(owner string, user string) ([]*Resource, error) {
-	if owner == "built-in" || owner == "" {
+// GetResources returns resource records matching owner/user. isGlobalAdmin
+// must only be true for a confirmed global administrator: it is the sole
+// trigger for treating owner=="built-in" or owner=="" as "scan every
+// organization" instead of an ordinary (and, for anyone else, almost always
+// empty) equality filter. Passing isGlobalAdmin=true for a non-global-admin
+// caller reintroduces an unfiltered cross-organization resource listing.
+func GetResources(owner string, user string, isGlobalAdmin bool) ([]*Resource, error) {
+	if isGlobalAdmin && (owner == "built-in" || owner == "") {
 		owner = ""
 		user = ""
 	}
@@ -60,8 +66,10 @@ func GetResources(owner string, user string) ([]*Resource, error) {
 	return resources, err
 }
 
-func GetPaginationResources(owner, user string, offset, limit int, field, value, sortField, sortOrder string) ([]*Resource, error) {
-	if owner == "built-in" || owner == "" {
+// GetPaginationResources is the paginated counterpart of GetResources(); see
+// its isGlobalAdmin comment.
+func GetPaginationResources(owner, user string, offset, limit int, field, value, sortField, sortOrder string, isGlobalAdmin bool) ([]*Resource, error) {
+	if isGlobalAdmin && (owner == "built-in" || owner == "") {
 		owner = ""
 		user = ""
 	}

@@ -60,7 +60,21 @@ func (c *ApiController) GetResources() {
 
 	if isOrgAdmin {
 		user = ""
+	} else {
+		// A non-admin caller can never choose which owner/user to list: force
+		// both to the caller's own identity instead of trusting the request's
+		// owner/user query parameters (mirrors the isOrgAdmin branch above,
+		// which is the only other place these are narrowed).
+		sessionOwner, sessionName, err := util.GetOwnerAndNameFromIdWithError(c.GetSessionUsername())
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		owner = sessionOwner
+		user = sessionName
 	}
+
+	isGlobalAdmin := c.IsGlobalAdmin()
 
 	if sortField == "Direct" {
 		provider, err := c.GetProviderFromContext("Storage")
@@ -78,7 +92,7 @@ func (c *ApiController) GetResources() {
 
 		c.ResponseOk(resources)
 	} else if limit == "" || page == "" {
-		resources, err := object.GetResources(owner, user)
+		resources, err := object.GetResources(owner, user, isGlobalAdmin)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
@@ -94,7 +108,7 @@ func (c *ApiController) GetResources() {
 		}
 
 		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
-		resources, err := object.GetPaginationResources(owner, user, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		resources, err := object.GetPaginationResources(owner, user, paginator.Offset(), limit, field, value, sortField, sortOrder, isGlobalAdmin)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return

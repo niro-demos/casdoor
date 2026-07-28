@@ -71,7 +71,10 @@ func writeInitDataToFile(filePath string) error {
 		return err
 	}
 
-	resources, err := GetResources("", "")
+	// DumpToFile is a trusted, operator-invoked full-database export (CLI
+	// -export flag), equivalent in scope to a global admin: isGlobalAdmin=true
+	// is what makes owner="" mean "every organization" here.
+	resources, err := GetResources("", "", true)
 	if err != nil {
 		return err
 	}
