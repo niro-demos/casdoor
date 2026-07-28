@@ -15,7 +15,10 @@
 package object
 
 import (
+	"context"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"reflect"
 	"strings"
@@ -24,8 +27,68 @@ import (
 	"github.com/casdoor/casdoor/util"
 )
 
+// webhookHTTPClient is used for every outbound webhook delivery. Its
+// Transport re-resolves and re-validates the destination IP immediately
+// before dialing (see safeWebhookDialContext), which closes the
+// DNS-rebinding gap that a one-time check of webhook.Url at send time would
+// leave open: a hostname that resolves to a public IP when validated could
+// otherwise be re-pointed at an internal/metadata address by the time the
+// connection is actually made.
+var webhookHTTPClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		DialContext: safeWebhookDialContext,
+	},
+}
+
+// safeWebhookDialContext resolves addr's host, rejects any resolved IP that
+// util.IsUnsafeOutboundIp flags (loopback/link-local/private/cloud-metadata/
+// multicast/unspecified), and only then dials directly to the validated IP.
+// This is the SSRF guard's last line of defense: it runs at actual
+// connection time, not just when the webhook URL was validated earlier.
+func safeWebhookDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	var ips []net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IP{ip}
+	} else {
+		ips, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	dialer := &net.Dialer{}
+	var lastErr error
+	for _, ip := range ips {
+		if util.IsUnsafeOutboundIp(ip) {
+			lastErr = fmt.Errorf("refusing to dial disallowed address %s", ip.String())
+			continue
+		}
+
+		conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if dialErr == nil {
+			return conn, nil
+		}
+		lastErr = dialErr
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no route to host %q", host)
+	}
+	return nil, lastErr
+}
+
 func sendWebhook(webhook *Webhook, record *Record, extendedUser *User) (int, string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	if err := util.ValidateOutboundUrl(webhook.Url); err != nil {
+		return 0, "", fmt.Errorf("webhook URL rejected: %w", err)
+	}
+
+	client := webhookHTTPClient
 	userMap := make(map[string]interface{})
 	var body io.Reader
 
