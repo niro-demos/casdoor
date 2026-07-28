@@ -695,7 +695,7 @@ func (c *ApiController) Login() {
 				verificationType = "email"
 				if !user.EmailVerified {
 					user.EmailVerified = true
-					_, err = object.UpdateUser(user.GetId(), user, []string{"email_verified"}, false)
+					_, err = object.UpdateUser(user.GetId(), user, []string{"email_verified"}, false, c.GetAcceptLanguage())
 					if err != nil {
 						c.ResponseError(err.Error(), nil)
 						return
@@ -1226,7 +1226,7 @@ func (c *ApiController) Login() {
 				currentTime := util.String2Time(util.GetCurrentTime())
 				duration := time.Duration(mfaRememberInSeconds) * time.Second
 				user.MfaRememberDeadline = util.Time2String(currentTime.Add(duration))
-				_, err = object.UpdateUser(user.GetId(), user, []string{"mfa_remember_deadline"}, user.IsAdmin)
+				_, err = object.UpdateUser(user.GetId(), user, []string{"mfa_remember_deadline"}, user.IsAdmin, c.GetAcceptLanguage())
 				if err != nil {
 					c.ResponseError(err.Error())
 					return
@@ -1282,7 +1282,7 @@ func (c *ApiController) Login() {
 		user := c.getCurrentUser()
 		if user != nil {
 			user.Language = authForm.Language
-			_, err = object.UpdateUser(user.GetId(), user, []string{"language"}, user.IsAdmin)
+			_, err = object.UpdateUser(user.GetId(), user, []string{"language"}, user.IsAdmin, c.GetAcceptLanguage())
 			if err != nil {
 				c.ResponseError(err.Error())
 				return

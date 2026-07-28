@@ -44,7 +44,7 @@ func resetUserSigninErrorTimes(user *User) error {
 	}
 
 	user.SigninWrongTimes = 0
-	_, err := UpdateUser(user.GetId(), user, []string{"signin_wrong_times", "last_signin_wrong_time"}, false)
+	_, err := UpdateUser(user.GetId(), user, []string{"signin_wrong_times", "last_signin_wrong_time"}, false, "en")
 	return err
 }
 
@@ -90,7 +90,7 @@ func recordSigninErrorInfo(user *User, lang string, options ...bool) error {
 	}
 
 	// update user
-	_, err := UpdateUser(user.GetId(), user, []string{"signin_wrong_times", "last_signin_wrong_time"}, false)
+	_, err := UpdateUser(user.GetId(), user, []string{"signin_wrong_times", "last_signin_wrong_time"}, false, "en")
 	if err != nil {
 		return err
 	}

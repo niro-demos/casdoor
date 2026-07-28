@@ -87,7 +87,7 @@ func MfaRecover(user *User, recoveryCode string) error {
 		return fmt.Errorf("recovery code not found")
 	}
 
-	_, err := UpdateUser(user.GetId(), user, []string{"recovery_codes"}, false)
+	_, err := UpdateUser(user.GetId(), user, []string{"recovery_codes"}, false, "en")
 	if err != nil {
 		return err
 	}
@@ -226,7 +226,7 @@ func DisabledMultiFactorAuth(user *User) error {
 func SetPreferredMultiFactorAuth(user *User, mfaType string) error {
 	user.PreferredMfaType = mfaType
 
-	_, err := UpdateUser(user.GetId(), user, []string{"preferred_mfa_type"}, false)
+	_, err := UpdateUser(user.GetId(), user, []string{"preferred_mfa_type"}, false, "en")
 	if err != nil {
 		return err
 	}

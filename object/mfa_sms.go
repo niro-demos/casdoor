@@ -64,7 +64,7 @@ func (mfa *SmsMfa) Enable(user *User) error {
 		columns = append(columns, "mfa_email_enabled", "email", "email_verified")
 	}
 
-	_, err := UpdateUser(user.GetId(), user, columns, false)
+	_, err := UpdateUser(user.GetId(), user, columns, false, "en")
 	if err != nil {
 		return err
 	}

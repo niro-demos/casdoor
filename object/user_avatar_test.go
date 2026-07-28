@@ -72,7 +72,7 @@ func TestUpdateAvatars(t *testing.T) {
 
 		if updated {
 			user.PermanentAvatar = "*"
-			_, err = UpdateUser(user.GetId(), user, []string{"avatar", "avatar_type"}, true)
+			_, err = UpdateUser(user.GetId(), user, []string{"avatar", "avatar_type"}, true, "en")
 			if err != nil {
 				panic(err)
 			}

@@ -113,7 +113,7 @@ func (c *McpController) handleUpdateUserTool(id interface{}, args UpdateUserArgs
 		return
 	}
 
-	affected, err := object.UpdateUser(args.Id, &args.User, []string{}, c.IsGlobalAdmin())
+	affected, err := object.UpdateUser(args.Id, &args.User, []string{}, c.IsGlobalAdmin(), c.GetAcceptLanguage())
 	if err != nil {
 		c.SendToolErrorResult(id, err.Error())
 		return

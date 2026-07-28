@@ -89,7 +89,7 @@ func (c *ApiController) RevokeConsent() {
 		// otherwise the application authorization is revoked, delete the whole record
 	}
 	userObj.ApplicationScopes = newScopes
-	success, err := object.UpdateUser(userObj.GetId(), userObj, nil, false)
+	success, err := object.UpdateUser(userObj.GetId(), userObj, nil, false, c.GetAcceptLanguage())
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -195,7 +195,7 @@ func (c *ApiController) GrantConsent() {
 		})
 	}
 
-	_, err = object.UpdateUser(userObj.GetId(), userObj, []string{"application_scopes"}, false)
+	_, err = object.UpdateUser(userObj.GetId(), userObj, []string{"application_scopes"}, false, c.GetAcceptLanguage())
 	if err != nil {
 		c.ResponseError(err.Error())
 		return

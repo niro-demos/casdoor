@@ -370,7 +370,7 @@ func addGroupMembers(groupId string, userIds []string) error {
 		}
 		if !util.InSlice(user.Groups, groupId) {
 			user.Groups = append(user.Groups, groupId)
-			if _, err := object.UpdateUser(user.GetId(), user, []string{"groups"}, true); err != nil {
+			if _, err := object.UpdateUser(user.GetId(), user, []string{"groups"}, true, "en"); err != nil {
 				return err
 			}
 		}
@@ -397,7 +397,7 @@ func setGroupMembers(groupId string, newUserIds []string, currentUserIds []strin
 			}
 			if !util.InSlice(user.Groups, groupId) {
 				user.Groups = append(user.Groups, groupId)
-				if _, err := object.UpdateUser(user.GetId(), user, []string{"groups"}, true); err != nil {
+				if _, err := object.UpdateUser(user.GetId(), user, []string{"groups"}, true, "en"); err != nil {
 					return err
 				}
 			}
@@ -411,7 +411,7 @@ func setGroupMembers(groupId string, newUserIds []string, currentUserIds []strin
 				continue
 			}
 			user.Groups = util.DeleteVal(user.Groups, groupId)
-			if _, err := object.UpdateUser(user.GetId(), user, []string{"groups"}, true); err != nil {
+			if _, err := object.UpdateUser(user.GetId(), user, []string{"groups"}, true, "en"); err != nil {
 				return err
 			}
 		}
@@ -427,7 +427,7 @@ func clearGroupMembers(groupId string) error {
 	}
 	for _, user := range users {
 		user.Groups = util.DeleteVal(user.Groups, groupId)
-		if _, err := object.UpdateUser(user.GetId(), user, []string{"groups"}, true); err != nil {
+		if _, err := object.UpdateUser(user.GetId(), user, []string{"groups"}, true, "en"); err != nil {
 			return err
 		}
 	}

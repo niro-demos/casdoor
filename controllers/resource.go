@@ -335,7 +335,7 @@ func (c *ApiController) UploadResource() {
 		}
 
 		user.Avatar = fileUrl
-		_, err = object.UpdateUser(user.GetId(), user, []string{"avatar"}, false)
+		_, err = object.UpdateUser(user.GetId(), user, []string{"avatar"}, false, c.GetAcceptLanguage())
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
@@ -388,7 +388,7 @@ func (c *ApiController) UploadResource() {
 		}
 		user.Properties[tag] = fileUrl
 		user.Properties["isIdCardVerified"] = "false"
-		_, err = object.UpdateUser(user.GetId(), user, []string{"properties"}, false)
+		_, err = object.UpdateUser(user.GetId(), user, []string{"properties"}, false, c.GetAcceptLanguage())
 		if err != nil {
 			c.ResponseError(err.Error())
 			return

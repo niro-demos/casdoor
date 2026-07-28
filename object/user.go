@@ -804,7 +804,7 @@ func getLastUser(owner string) (*User, error) {
 	return nil, nil
 }
 
-func UpdateUser(id string, user *User, columns []string, isAdmin bool) (bool, error) {
+func UpdateUser(id string, user *User, columns []string, isAdmin bool, lang string) (bool, error) {
 	var err error
 	owner, name := util.GetOwnerAndNameFromIdNoCheck(id)
 	oldUser, err := getUser(owner, name)
@@ -813,6 +813,30 @@ func UpdateUser(id string, user *User, columns []string, isAdmin bool) (bool, er
 	}
 	if oldUser == nil {
 		return false, fmt.Errorf("the user: %s is not found", id)
+	}
+
+	// A user's Owner is its organization. Moving a user into "built-in" makes
+	// it a global administrator (User.IsGlobalAdmin() is defined purely as
+	// Owner == "built-in"), so a move there needs the same guard AddUser()
+	// already enforces for creation: it must be explicitly allowed via the
+	// target organization's "Has privilege consent" setting. Without this,
+	// any caller that can reach UpdateUser with an attacker-controlled Owner
+	// (e.g. the SCIM update endpoints, which apply no per-request scoping)
+	// could silently grant itself global-admin rights.
+	if user.Owner != oldUser.Owner && user.Owner == "built-in" {
+		// Organization rows are always keyed by Owner == "admin"; the
+		// well-known way to look one up by its own name is
+		// GetOrganizationByUser (same call AddUser uses for this check).
+		organization, err := GetOrganizationByUser(user)
+		if err != nil {
+			return false, err
+		}
+		if organization == nil {
+			return false, fmt.Errorf("organization 'built-in' not found")
+		}
+		if !organization.HasPrivilegeConsent && user.Name != "admin" {
+			return false, errors.New(i18n.Translate(lang, "organization:adding a new user to the 'built-in' organization is currently disabled. Please note: all users in the 'built-in' organization are global administrators in Casdoor. Refer to the docs: https://casdoor.org/docs/basic/core-concepts#how-does-casdoor-manage-itself. If you still wish to create a user for the 'built-in' organization, go to the organization's settings page and enable the 'Has privilege consent' option."))
+		}
 	}
 
 	// Auto-upgrade guest users when they update their username or password
@@ -1199,7 +1223,7 @@ func DeleteUser(user *User) (bool, error) {
 	if organization != nil && organization.EnableSoftDeletion {
 		user.IsDeleted = true
 		user.DeletedTime = util.GetCurrentTime()
-		return UpdateUser(user.GetId(), user, []string{"is_deleted", "deleted_time"}, false)
+		return UpdateUser(user.GetId(), user, []string{"is_deleted", "deleted_time"}, false, "en")
 	} else {
 		return deleteUser(user)
 	}
@@ -1642,6 +1666,6 @@ func UpdateUserBalance(owner string, name string, balance float64, currency stri
 	}
 
 	user.Balance = newBalance
-	_, err = UpdateUser(user.GetId(), user, []string{"balance"}, true)
+	_, err = UpdateUser(user.GetId(), user, []string{"balance"}, true, lang)
 	return err
 }

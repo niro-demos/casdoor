@@ -114,7 +114,7 @@ func (c *ApiController) UpdateEnforcer() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdateEnforcer(id, &enforcer))
+	c.Data["json"] = wrapActionResponse(object.UpdateEnforcer(id, &enforcer, c.IsGlobalAdmin(), c.GetAcceptLanguage()))
 	c.ServeJSON()
 }
 

@@ -159,7 +159,7 @@ func UpdateScimUser(id string, r *scim.Resource) error {
 	if err != nil {
 		return err
 	}
-	_, err = object.UpdateUser(oldUser.GetId(), newUser, nil, true)
+	_, err = object.UpdateUser(oldUser.GetId(), newUser, nil, true, "en")
 	if err != nil {
 		return err
 	}
@@ -251,7 +251,7 @@ func UpdateScimUserByPatchOperation(id string, ops []scim.PatchOperation) (r sci
 			user.Owner = ToString(value, user.Owner)
 		}
 	}
-	_, err = object.UpdateUser(old, user, nil, true)
+	_, err = object.UpdateUser(old, user, nil, true, "en")
 	if err != nil {
 		return scim.Resource{}, err
 	}
