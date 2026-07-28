@@ -884,6 +884,19 @@ func CheckPermissionForUpdateUser(oldUser, newUser *User, isAdmin bool, allowDis
 		}
 	}
 
+	// EmailVerified has no corresponding AccountItem, so unlike the fields
+	// above it is never gated by an org-configurable permission. It must
+	// only ever be set to true by a completed verification-code/OTP
+	// challenge or by an admin, never directly by the user via a profile
+	// update. Treat it like the other account-flag fields (IsAdmin,
+	// IsForbidden, IsDeleted below) and revert it whenever the caller isn't
+	// an org/global admin.
+	if oldUser.EmailVerified != newUser.EmailVerified {
+		if !isAdmin {
+			newUser.EmailVerified = oldUser.EmailVerified
+		}
+	}
+
 	if oldUser.IsForbidden != newUser.IsForbidden {
 		item := GetAccountItemByName("Is forbidden", organization)
 		if !userVisible(isAdmin, item) {
