@@ -297,7 +297,7 @@ func initBuiltInCert() {
 }
 
 func initBuiltInLdap() {
-	ldap, err := GetLdap("ldap-built-in")
+	ldap, err := GetLdap("built-in", "ldap-built-in")
 	if err != nil {
 		panic(err)
 	}
