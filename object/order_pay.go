@@ -133,9 +133,28 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 }
 
 func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) (payment *Payment, attachInfo map[string]interface{}, err error) {
-	if order.State != "Created" {
-		return nil, nil, fmt.Errorf("cannot pay for order: %s, current state is %s", order.GetId(), order.State)
+	// Atomically claim the order row before doing any payment/stock work, the
+	// same pattern ApplyCoupon uses via session.ForUpdate(). This closes the
+	// TOCTOU window: `order` (fetched earlier, unlocked, by the controller)
+	// is discarded in favor of a fresh, lock-consistent read, and only one
+	// concurrent caller can hold the lock at a time.
+	session, lockedOrder, err := LockOrderForPayment(order.Owner, order.Name)
+	if err != nil {
+		return nil, nil, err
 	}
+	order = lockedOrder
+
+	// Owns the session (and its row lock) until it is explicitly handed off
+	// to PersistOrderPaidInSession below; any early return before that point
+	// rolls back, releasing the lock and leaving the order untouched.
+	sessionOwned := true
+	defer func() {
+		if sessionOwned {
+			_ = session.Rollback()
+			session.Close()
+		}
+	}()
+
 	productNames := order.Products
 	products, err := getOrderProducts(order.Owner, productNames)
 	if err != nil {
@@ -376,8 +395,12 @@ func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) 
 		order.UpdateTime = util.GetCurrentTime()
 	}
 
-	// Update order state first to avoid inconsistency
-	_, err = UpdateOrder(order.GetId(), order)
+	// Update order state first to avoid inconsistency. Persisted inside the
+	// same locked transaction opened above, conditioned on the row still
+	// being "Created" as defense in depth on top of the row lock; this is
+	// the atomic claim that only lets one concurrent PayOrder call win.
+	sessionOwned = false
+	_, err = PersistOrderPaidInSession(session, order)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
+	"github.com/xorm-io/xorm"
 )
 
 type Order struct {
@@ -125,6 +126,75 @@ func GetOrder(id string) (*Order, error) {
 		return nil, err
 	}
 	return getOrder(owner, name)
+}
+
+// LockOrderForPayment opens a DB transaction and locks the order row with
+// session.ForUpdate(), the same pattern ApplyCoupon uses to serialize
+// concurrent claims on a coupon row. It re-reads the order under that lock
+// and re-checks that it is still "Created", closing the check-then-act
+// window a plain GetOrder + in-memory check leaves open.
+//
+// On success, the caller owns the returned session and MUST eventually call
+// either PersistOrderPaidInSession (to commit) or session.Rollback() (to
+// release the lock without changing anything), followed by session.Close().
+// On error, the session is already rolled back and closed for the caller.
+func LockOrderForPayment(owner, name string) (*xorm.Session, *Order, error) {
+	session := ormer.Engine.NewSession()
+	if err := session.Begin(); err != nil {
+		session.Close()
+		return nil, nil, err
+	}
+
+	locked := Order{Owner: owner, Name: name}
+	existed, err := session.ForUpdate().Get(&locked)
+	if err != nil {
+		_ = session.Rollback()
+		session.Close()
+		return nil, nil, err
+	}
+	if !existed {
+		_ = session.Rollback()
+		session.Close()
+		return nil, nil, fmt.Errorf("the order: %s/%s does not exist", owner, name)
+	}
+	if locked.State != "Created" {
+		_ = session.Rollback()
+		session.Close()
+		return nil, nil, fmt.Errorf("cannot pay for order: %s, current state is %s", locked.GetId(), locked.State)
+	}
+
+	return session, &locked, nil
+}
+
+// PersistOrderPaidInSession writes the final order fields (payment
+// association and, for instant/synchronous providers, the Paid state)
+// within the same locked transaction opened by LockOrderForPayment, using a
+// conditional `WHERE state = 'Created'` as defense in depth on top of the
+// row lock. It commits and closes the session on success; on failure or a
+// lost race (affected == 0) it rolls back and closes the session, and the
+// caller must not use it again either way.
+func PersistOrderPaidInSession(session *xorm.Session, order *Order) (bool, error) {
+	affected, err := session.ID(core.PK{order.Owner, order.Name}).
+		Where("state = ?", "Created").
+		AllCols().
+		Update(order)
+	if err != nil {
+		_ = session.Rollback()
+		session.Close()
+		return false, err
+	}
+	if affected == 0 {
+		_ = session.Rollback()
+		session.Close()
+		return false, fmt.Errorf("cannot pay for order: %s, current state is no longer Created", order.GetId())
+	}
+
+	if err := session.Commit(); err != nil {
+		session.Close()
+		return false, err
+	}
+	session.Close()
+	return true, nil
 }
 
 func UpdateOrder(id string, order *Order) (bool, error) {
