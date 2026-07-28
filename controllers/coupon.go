@@ -16,6 +16,8 @@ package controllers
 
 import (
 	"encoding/json"
+	"fmt"
+	"time"
 
 	"github.com/beego/beego/v2/core/utils/pagination"
 	"github.com/casdoor/casdoor/object"
@@ -180,11 +182,19 @@ func (c *ApiController) ValidateCoupon() {
 		return
 	}
 
+	now := time.Now()
+	if allowed, retryAfter := couponValidateAllow(userName, now); !allowed {
+		c.ResponseError(fmt.Sprintf(c.T("general:Too many coupon validation attempts, please wait %d seconds and try again"), retryAfter))
+		return
+	}
+
 	coupon, err := object.ValidateCoupon(req.Owner, req.CouponCode, userName, req.Products, req.Amount, req.Currency)
 	if err != nil {
+		couponValidateRecordFailure(userName, now)
 		c.ResponseError(err.Error())
 		return
 	}
+	couponValidateRecordSuccess(userName)
 
 	discount := object.CalculateDiscount(coupon, req.Amount)
 	c.ResponseOk(map[string]interface{}{
