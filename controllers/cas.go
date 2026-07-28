@@ -15,13 +15,17 @@
 package controllers
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/beego/beego/v2/core/logs"
 	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
 )
 
 const (
@@ -117,12 +121,9 @@ func (c *RootController) CasP3ProxyValidate() {
 
 	if pgtUrl != "" && serviceResponse.Failure == nil {
 		// that means we are in proxy web flow
-		pgt := object.StoreCasTokenForPgt(serviceResponse.Success, service, userId)
-		pgtiou := serviceResponse.Success.ProxyGrantingTicket
-		// todo: check whether it is https
 		pgtUrlObj, err := url.Parse(pgtUrl)
 		if err != nil {
-			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "invalid pgtUrl", format)
 			return
 		}
 
@@ -131,24 +132,36 @@ func (c *RootController) CasP3ProxyValidate() {
 			return
 		}
 
-		// make a request to pgturl passing pgt and pgtiou
-		param := pgtUrlObj.Query()
-		param.Add("pgtId", pgt)
-		param.Add("pgtIou", pgtiou)
-		pgtUrlObj.RawQuery = param.Encode()
-
-		request, err := http.NewRequest("GET", pgtUrlObj.String(), nil)
-		if err != nil {
-			c.sendCasAuthenticationResponseErr(InternalError, err.Error(), format)
+		// Ownership + SSRF guard: the callback target must belong to the same
+		// host as the service this ticket was actually issued for (mirroring
+		// the ownership check already applied to "service" above), and must
+		// not resolve to a loopback/link-local/private address. Without this,
+		// any holder of a valid CAS service ticket could direct the server to
+		// make an outbound HTTPS request to an arbitrary attacker-chosen host.
+		if err := validatePgtCallbackTarget(pgtUrlObj, issuedService); err != nil {
+			logs.Warning("CasP3ProxyValidate: rejected pgtUrl callback %s: %s", pgtUrl, err.Error())
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "callback target is not allowed", format)
 			return
 		}
 
-		resp, err := http.DefaultClient.Do(request)
-		if err != nil || !(resp.StatusCode >= 200 && resp.StatusCode < 400) {
-			// failed to send request
-			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
+		// The pgt id is generated but intentionally NOT stored/activated yet:
+		// it only becomes a valid, redeemable proxy-granting ticket once the
+		// callback below confirms this caller actually controls pgtUrl.
+		pgt := object.GenerateCasPgt()
+		pgtiou := serviceResponse.Success.ProxyGrantingTicket
+
+		if err := performPgtCallback(casProxyCallbackClient, pgtUrlObj, pgt, pgtiou); err != nil {
+			// Failed to confirm the callback: never store/expose the PGT.
+			// performPgtCallback already logged the real cause server-side;
+			// the client only ever gets a generic message, since the real
+			// transport error would embed the callback URL, including the
+			// pgtId/pgtIou query parameters just added above.
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "failed to reach proxy callback", format)
 			return
 		}
+
+		// Callback confirmed: only now is it safe to activate the PGT.
+		object.StoreCasTokenForPgt(pgt, serviceResponse.Success, service, userId)
 	}
 	// everything is ok, send the response
 	if format == "json" {
@@ -158,6 +171,132 @@ func (c *RootController) CasP3ProxyValidate() {
 		c.Data["xml"] = serviceResponse
 		c.ServeXML()
 	}
+}
+
+// casProxyCallbackClient performs the synchronous pgtUrl callback in
+// CasP3ProxyValidate. Its DialContext re-resolves and re-validates the
+// destination at dial time (see safeCasProxyDialContext) to close the
+// TOCTOU/DNS-rebinding gap a one-time host check in validatePgtCallbackTarget
+// would otherwise leave open.
+var casProxyCallbackClient = &http.Client{
+	Transport: &http.Transport{
+		DialContext: safeCasProxyDialContext,
+	},
+}
+
+// validatePgtCallbackTarget ensures pgtUrlObj is safe to dial as a CAS
+// proxy-granting-ticket callback for the ticket that was issued to
+// issuedService:
+//  1. its host must match the host of the service the ticket was actually
+//     issued for (mirroring the ownership check already applied to the
+//     "service" parameter in CasP3ProxyValidate), so an arbitrary
+//     attacker-chosen host can never be used as a callback target, and
+//  2. it must not resolve to a loopback/link-local/private address, closing
+//     DNS-rebinding on an otherwise allow-listed hostname.
+func validatePgtCallbackTarget(pgtUrlObj *url.URL, issuedService string) error {
+	issuedServiceUrl, err := url.Parse(issuedService)
+	if err != nil || issuedServiceUrl.Hostname() == "" {
+		return fmt.Errorf("registered service URL is invalid")
+	}
+
+	if !strings.EqualFold(pgtUrlObj.Hostname(), issuedServiceUrl.Hostname()) {
+		return fmt.Errorf("callback host %q does not match the registered service host %q", pgtUrlObj.Hostname(), issuedServiceUrl.Hostname())
+	}
+
+	ips, err := lookupHostIps(pgtUrlObj.Hostname())
+	if err != nil || len(ips) == 0 {
+		return fmt.Errorf("failed to resolve callback host")
+	}
+	for _, ip := range ips {
+		if util.IsIntranetIp(ip.String()) {
+			return fmt.Errorf("callback host resolves to a disallowed address")
+		}
+	}
+	return nil
+}
+
+// lookupHostIps resolves host to its IP addresses. If host is already a
+// literal IP address, it is returned as-is with no DNS lookup.
+func lookupHostIps(host string) ([]net.IP, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return []net.IP{ip}, nil
+	}
+	return net.LookupIP(host)
+}
+
+// safeCasProxyDialContext is the DialContext for casProxyCallbackClient. It
+// re-resolves addr's host at dial time and refuses to connect to any
+// resolved IP that util.IsIntranetIp flags, then dials the validated IP
+// directly - closing the gap where a hostname that looked safe when
+// validatePgtCallbackTarget ran could be re-pointed at an internal address
+// by the time the connection is actually made (DNS rebinding).
+func safeCasProxyDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	ips, err := lookupHostIps(host)
+	if err != nil {
+		return nil, err
+	}
+
+	dialer := &net.Dialer{}
+	var lastErr error
+	for _, ip := range ips {
+		if util.IsIntranetIp(ip.String()) {
+			lastErr = fmt.Errorf("refusing to dial disallowed address %s", ip.String())
+			continue
+		}
+
+		conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if dialErr == nil {
+			return conn, nil
+		}
+		lastErr = dialErr
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no route to host %q", host)
+	}
+	return nil, lastErr
+}
+
+// performPgtCallback sends the pgt/pgtiou callback GET request to pgtUrlObj
+// and reports whether the callback confirmed success (2xx/3xx). It never
+// returns the underlying transport error or response detail to the caller:
+// a net/http transport error's Error() text embeds the full request URL -
+// including the pgtId/pgtIou query parameters this function adds - so
+// echoing it back to the CAS client would disclose an unconfirmed PGT's id.
+func performPgtCallback(client *http.Client, pgtUrlObj *url.URL, pgt, pgtiou string) error {
+	param := pgtUrlObj.Query()
+	param.Add("pgtId", pgt)
+	param.Add("pgtIou", pgtiou)
+	pgtUrlObj.RawQuery = param.Encode()
+
+	request, err := http.NewRequest("GET", pgtUrlObj.String(), nil)
+	if err != nil {
+		// err.Error() here could embed the pgtId/pgtIou-bearing URL; keep it
+		// server-side only and return a generic, detail-free error.
+		logs.Warning("CasP3ProxyValidate: failed to build pgtUrl callback request: %s", err.Error())
+		return fmt.Errorf("failed to build proxy callback request")
+	}
+
+	resp, err := client.Do(request)
+	if err != nil {
+		// A net/http transport error's Error() text embeds the full request
+		// URL (including pgtId/pgtIou) - log it server-side only, never
+		// return it to the caller.
+		logs.Warning("CasP3ProxyValidate: pgtUrl callback transport error: %s", err.Error())
+		return fmt.Errorf("failed to reach proxy callback")
+	}
+	defer resp.Body.Close()
+
+	if !(resp.StatusCode >= 200 && resp.StatusCode < 400) {
+		logs.Warning("CasP3ProxyValidate: pgtUrl callback returned status %d", resp.StatusCode)
+		return fmt.Errorf("proxy callback returned an unsuccessful status")
+	}
+	return nil
 }
 
 func (c *RootController) CasProxy() {
