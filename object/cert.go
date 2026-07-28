@@ -77,6 +77,11 @@ func GetCertCount(owner, field, value string) (int64, error) {
 	return session.Where("owner = ? or owner = ? ", "admin", owner).Count(&Cert{})
 }
 
+func GetOwnerCertCount(owner, field, value string) (int64, error) {
+	session := GetSession("", -1, -1, field, value, "", "")
+	return session.Where("owner = ?", owner).Count(&Cert{})
+}
+
 func GetCerts(owner string) ([]*Cert, error) {
 	certs := []*Cert{}
 	db := ormer.Engine.NewSession()
@@ -91,10 +96,31 @@ func GetCerts(owner string) ([]*Cert, error) {
 	return certs, nil
 }
 
+func GetOwnerCerts(owner string) ([]*Cert, error) {
+	certs := []*Cert{}
+	err := ormer.Engine.Where("owner = ?", owner).Desc("created_time").Find(&certs, &Cert{})
+	if err != nil {
+		return certs, err
+	}
+
+	return certs, nil
+}
+
 func GetPaginationCerts(owner string, offset, limit int, field, value, sortField, sortOrder string) ([]*Cert, error) {
 	certs := []*Cert{}
 	session := GetSession("", offset, limit, field, value, sortField, sortOrder)
 	err := session.Where("owner = ? or owner = ? ", "admin", owner).Find(&certs)
+	if err != nil {
+		return certs, err
+	}
+
+	return certs, nil
+}
+
+func GetPaginationOwnerCerts(owner string, offset, limit int, field, value, sortField, sortOrder string) ([]*Cert, error) {
+	certs := []*Cert{}
+	session := GetSession("", offset, limit, field, value, sortField, sortOrder)
+	err := session.Where("owner = ?", owner).Find(&certs)
 	if err != nil {
 		return certs, err
 	}

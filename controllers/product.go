@@ -88,6 +88,7 @@ func (c *ApiController) GetProduct() {
 		c.ResponseError(err.Error())
 		return
 	}
+	product.ProviderObjs = object.GetMaskedProviders(product.ProviderObjs, true)
 
 	c.ResponseOk(product)
 }
