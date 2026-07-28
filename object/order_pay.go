@@ -60,6 +60,10 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 	for _, productInfo := range reqProductInfos {
 		product := productMap[productInfo.Name]
 
+		if productInfo.Quantity <= 0 {
+			return nil, fmt.Errorf("the quantity should be greater than zero")
+		}
+
 		var productPrice float64
 		if product.IsRecharge {
 			productPrice = productInfo.Price
@@ -152,6 +156,16 @@ func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) 
 
 	if err := validateProductCurrencies(products, orderCurrency); err != nil {
 		return nil, nil, err
+	}
+
+	// Defense in depth: a purchase order's price must never be negative,
+	// regardless of how it was produced (PlaceOrder itself rejects a
+	// non-positive quantity, but this guard still protects PayOrder if an
+	// order with a negative price reaches it by some other path). Paying a
+	// negative-price order through the Balance provider would flip the
+	// intended debit into a credit and mint account balance for the buyer.
+	if order.Price < 0 {
+		return nil, nil, fmt.Errorf("cannot pay for order: %s, invalid order price: %v", order.GetId(), order.Price)
 	}
 
 	user, err := GetUser(util.GetId(order.Owner, order.User))
