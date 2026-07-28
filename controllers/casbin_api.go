@@ -306,6 +306,45 @@ func (c *ApiController) BatchEnforce() {
 	c.ResponseOk(res, keyRes)
 }
 
+// getAuthorizedUserId resolves the effective userId for the Casbin
+// GetAllObjects/GetAllActions/GetAllRoles endpoints and enforces that the
+// caller may see that identity's entitlements.
+//
+// The caller must always be authenticated first (an empty session is
+// rejected outright, regardless of whether userId was supplied) so a
+// request can never reach object.GetAllObjects/GetAllActions/GetAllRoles
+// with no session at all. When userId is supplied and differs from the
+// caller's own session identity, the caller must be a global admin or an
+// admin of the target's own organization (the same ownership check used
+// for cross-user reads elsewhere in this package, e.g. controllers/user.go).
+// On failure it writes the error response itself and returns ok=false.
+func (c *ApiController) getAuthorizedUserId() (userId string, ok bool) {
+	sessionUserId := c.GetSessionUsername()
+	if sessionUserId == "" {
+		c.ResponseError(c.T("general:Please login first"))
+		return "", false
+	}
+
+	userId = c.Ctx.Input.Query("userId")
+	if userId == "" {
+		return sessionUserId, true
+	}
+
+	if userId != sessionUserId {
+		hasPermission, err := object.CheckUserPermission(sessionUserId, userId, true, c.GetAcceptLanguage())
+		if !hasPermission {
+			if err != nil {
+				c.ResponseError(err.Error())
+			} else {
+				c.ResponseError(c.T("general:Please login first"))
+			}
+			return "", false
+		}
+	}
+
+	return userId, true
+}
+
 // GetAllObjects
 // @Title GetAllObjects
 // @Tag Enforcer API
@@ -314,13 +353,9 @@ func (c *ApiController) BatchEnforce() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-objects [get]
 func (c *ApiController) GetAllObjects() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.getAuthorizedUserId()
+	if !ok {
+		return
 	}
 
 	objects, err := object.GetAllObjects(userId)
@@ -340,13 +375,9 @@ func (c *ApiController) GetAllObjects() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-actions [get]
 func (c *ApiController) GetAllActions() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.getAuthorizedUserId()
+	if !ok {
+		return
 	}
 
 	actions, err := object.GetAllActions(userId)
@@ -366,13 +397,9 @@ func (c *ApiController) GetAllActions() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-roles [get]
 func (c *ApiController) GetAllRoles() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.getAuthorizedUserId()
+	if !ok {
+		return
 	}
 
 	roles, err := object.GetAllRoles(userId)
