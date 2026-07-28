@@ -136,6 +136,15 @@ func ValidateDPoPProof(proofToken, method, htu, accessToken string) (string, err
 		return "", fmt.Errorf("DPoP proof missing jti claim")
 	}
 
+	// A DPoP proof MUST NOT be accepted more than once (RFC 9449 §11.1). Track jti values
+	// already seen, scoped per bound key (jkt) so distinct keys can't collide on the same
+	// jti, with a TTL matching the iat freshness window enforced above: once a proof falls
+	// outside that window it is rejected anyway, so there is no need to remember it longer.
+	replayKey := jkt + ":" + claims.Jti
+	if DPoPReplayStore.CheckAndStore(replayKey, time.Duration(dpopMaxAgeSeconds)*time.Second) {
+		return "", fmt.Errorf("DPoP proof jti has already been used")
+	}
+
 	// ath MUST be validated at protected resource endpoints (RFC 9449 §4.2).
 	// It is the base64url-encoded SHA-256 hash of the ASCII access token string.
 	if accessToken != "" {

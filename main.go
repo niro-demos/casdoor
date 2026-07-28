@@ -78,6 +78,7 @@ func main() {
 	object.InitFromFile()
 	object.InitCleanupTokens()
 	object.InitCleanupDeviceAuthMap()
+	object.InitCleanupDPoPReplayStore()
 
 	object.InitSiteMap()
 	if len(object.SiteMap) != 0 {
