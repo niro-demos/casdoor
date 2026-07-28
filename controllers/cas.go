@@ -40,6 +40,61 @@ func queryUnescape(service string) string {
 	return s
 }
 
+type casServiceUrl struct {
+	scheme string
+	host   string
+	path   string
+	query  string
+}
+
+func casServiceMatchesIssued(service string, issuedService string) bool {
+	serviceUrl, err := normalizeCasServiceUrl(service)
+	if err != nil {
+		return false
+	}
+	issuedServiceUrl, err := normalizeCasServiceUrl(issuedService)
+	if err != nil {
+		return false
+	}
+
+	return serviceUrl.scheme == issuedServiceUrl.scheme &&
+		serviceUrl.host == issuedServiceUrl.host &&
+		serviceUrl.path == issuedServiceUrl.path &&
+		serviceUrl.query == issuedServiceUrl.query
+}
+
+func normalizeCasServiceUrl(service string) (*casServiceUrl, error) {
+	serviceUrl, err := parseCasServiceUrl(service)
+	if err != nil {
+		return nil, err
+	}
+
+	return &casServiceUrl{
+		scheme: strings.ToLower(serviceUrl.Scheme),
+		host:   strings.ToLower(serviceUrl.Host),
+		path:   serviceUrl.EscapedPath(),
+		query:  serviceUrl.RawQuery,
+	}, nil
+}
+
+func parseCasServiceUrl(service string) (*url.URL, error) {
+	serviceUrl, err := url.Parse(service)
+	if isValidCasServiceUrl(serviceUrl, err) {
+		return serviceUrl, nil
+	}
+
+	serviceUrl, err = url.Parse(queryUnescape(service))
+	if isValidCasServiceUrl(serviceUrl, err) {
+		return serviceUrl, nil
+	}
+
+	return nil, fmt.Errorf("invalid service URL")
+}
+
+func isValidCasServiceUrl(serviceUrl *url.URL, err error) bool {
+	return err == nil && serviceUrl.Scheme != "" && serviceUrl.Host != "" && serviceUrl.User == nil
+}
+
 func (c *RootController) CasValidate() {
 	ticket := c.Ctx.Input.Query("ticket")
 	service := c.Ctx.Input.Query("service")
@@ -102,7 +157,7 @@ func (c *RootController) CasP3ProxyValidate() {
 	// find the token
 	if ok {
 		// check whether service is the one for which we previously issued token
-		if strings.HasPrefix(service, issuedService) || strings.HasPrefix(queryUnescape(service), issuedService) {
+		if casServiceMatchesIssued(service, issuedService) {
 			serviceResponse.Success = response
 		} else {
 			// service not match
