@@ -29,13 +29,15 @@ type UserResourceHandler struct{}
 // https://datatracker.ietf.org/doc/html/rfc7644#section-3.4 How to query/update resources
 
 func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
+	owner, scoped := ownerFromRequest(r)
 	resource := &scim.Resource{Attributes: attrs}
-	err := AddScimUser(resource)
+	err := AddScimUser(resource, owner, scoped)
 	return *resource, err
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := GetScimUser(id)
+	owner, scoped := ownerFromRequest(r)
+	resource, err := GetScimUser(id, owner, scoped)
 	if err != nil {
 		return scim.Resource{}, err
 	}
@@ -46,11 +48,12 @@ func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, err
 }
 
 func (h UserResourceHandler) Delete(r *http.Request, id string) error {
+	owner, scoped := ownerFromRequest(r)
 	user, err := object.GetUserByUserIdOnly(id)
 	if err != nil {
 		return err
 	}
-	if user == nil {
+	if user == nil || !checkOwnerScope(user.Owner, owner, scoped) {
 		return errors.ScimErrorResourceNotFound(id)
 	}
 	_, err = object.DeleteUser(user)
@@ -58,8 +61,16 @@ func (h UserResourceHandler) Delete(r *http.Request, id string) error {
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	owner, scoped := ownerFromRequest(r)
+
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		var count int64
+		var err error
+		if scoped {
+			count, err = object.GetUserCount(owner, "", "", "")
+		} else {
+			count, err = object.GetGlobalUserCount("", "")
+		}
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -68,7 +79,13 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 
 	resources := make([]scim.Resource, 0)
 	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	var users []*object.User
+	var err error
+	if scoped {
+		users, err = object.GetPaginationUsers(owner, params.StartIndex-1, params.Count, "", "", "", "", "")
+	} else {
+		users, err = object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	}
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -82,22 +99,24 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 }
 
 func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim.PatchOperation) (scim.Resource, error) {
+	owner, scoped := ownerFromRequest(r)
 	user, err := object.GetUserByUserIdOnly(id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
+	if user == nil || !checkOwnerScope(user.Owner, owner, scoped) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	return UpdateScimUserByPatchOperation(id, operations)
 }
 
 func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
+	owner, scoped := ownerFromRequest(r)
 	user, err := object.GetUserByUserIdOnly(id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
+	if user == nil || !checkOwnerScope(user.Owner, owner, scoped) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	resource := &scim.Resource{Attributes: attrs}
@@ -105,22 +124,26 @@ func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.Reso
 	return *resource, err
 }
 
-func GetScimUser(id string) (*scim.Resource, error) {
+func GetScimUser(id string, owner string, scoped bool) (*scim.Resource, error) {
 	user, err := object.GetUserByUserIdOnly(id)
 	if err != nil {
 		return nil, err
 	}
-	if user == nil {
+	if user == nil || !checkOwnerScope(user.Owner, owner, scoped) {
 		return nil, nil
 	}
 	r := user2resource(user)
 	return r, nil
 }
 
-func AddScimUser(r *scim.Resource) error {
+func AddScimUser(r *scim.Resource, owner string, scoped bool) error {
 	newUser, err := resource2user(r.Attributes)
 	if err != nil {
 		return err
+	}
+
+	if scoped && newUser.Owner != owner {
+		return scimErrorForbidden(fmt.Sprintf("caller is not an administrator of organization %q", newUser.Owner))
 	}
 
 	// Check whether the user exists.

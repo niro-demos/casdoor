@@ -21,10 +21,17 @@ import (
 )
 
 func (c *RootController) HandleScim() {
-	_, ok := c.RequireAdmin()
+	owner, ok := c.RequireAdmin()
 	if !ok {
 		return
 	}
+
+	// Thread the caller's organization scope through to the SCIM resource
+	// handlers via the request context. An empty owner means the caller is
+	// the built-in global admin (see ApiController.RequireAdmin) and is not
+	// confined to a single organization; any other owner value confines every
+	// SCIM Get/GetAll/Create/Patch/Replace/Delete operation to that org.
+	c.Ctx.Request = c.Ctx.Request.WithContext(scim.WithOwner(c.Ctx.Request.Context(), owner))
 
 	path := c.Ctx.Request.URL.Path
 	c.Ctx.Request.URL.Path = strings.TrimPrefix(path, "/scim")
