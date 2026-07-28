@@ -222,6 +222,14 @@ func (product *Product) GetId() string {
 }
 
 func (product *Product) isValidProvider(provider *Provider) error {
+	// The built-in Dummy provider (pp/dummy.go) self-confirms every payment as
+	// Paid without ever contacting a real payment gateway. It must not be
+	// usable to pay for a product when Casdoor is running in production
+	// (runmode=prod) — see isProdRunmode() in provider.go.
+	if provider.Type == "Dummy" && isProdRunmode() {
+		return fmt.Errorf("the payment provider: %s is a test-only Dummy provider and cannot be used for product: %s when runmode is \"prod\"", provider.Name, product.Name)
+	}
+
 	if provider.Type == "Alipay" && product.Currency != "CNY" {
 		return fmt.Errorf("alipay provider only supports CNY, got: %s", product.Currency)
 	}
