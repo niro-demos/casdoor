@@ -33,6 +33,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/xorm-io/builder"
 	"github.com/xorm-io/core"
+	"github.com/xorm-io/xorm"
 )
 
 const (
@@ -968,22 +969,39 @@ func UpdateUserForAllFields(id string, user *User) (bool, error) {
 }
 
 func AddUser(user *User, lang string) (bool, error) {
+	if err := prepareUserForAdd(user, lang); err != nil {
+		return false, err
+	}
+
+	if err := syncUserGroups(user); err != nil {
+		return false, err
+	}
+
+	affected, err := ormer.Engine.Insert(user)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func prepareUserForAdd(user *User, lang string) error {
 	if user.Id == "" {
 		application, err := GetApplicationByUser(user)
 		if err != nil {
-			return false, err
+			return err
 		}
 
 		id, err := GenerateIdForNewUser(application)
 		if err != nil {
-			return false, err
+			return err
 		}
 
 		user.Id = id
 	}
 
 	if user.Owner == "" || user.Name == "" {
-		return false, errors.New(i18n.Translate(lang, "user:the user's owner and name should not be empty"))
+		return errors.New(i18n.Translate(lang, "user:the user's owner and name should not be empty"))
 	}
 
 	if CheckUsernameWithEmail(user.Name, "en") != "" {
@@ -992,24 +1010,24 @@ func AddUser(user *User, lang string) (bool, error) {
 
 	organization, err := GetOrganizationByUser(user)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if organization == nil {
-		return false, fmt.Errorf(i18n.Translate(lang, "auth:the organization: %s is not found"), user.Owner)
+		return fmt.Errorf(i18n.Translate(lang, "auth:the organization: %s is not found"), user.Owner)
 	}
 
 	if user.Owner != "built-in" {
 		applicationCount, err := GetOrganizationApplicationCount(organization.Owner, organization.Name, "", "")
 		if err != nil {
-			return false, err
+			return err
 		}
 		if applicationCount == 0 {
-			return false, fmt.Errorf(i18n.Translate(lang, "general:The organization: %s should have one application at least"), organization.Owner)
+			return fmt.Errorf(i18n.Translate(lang, "general:The organization: %s should have one application at least"), organization.Owner)
 		}
 	}
 
 	if organization.Name == "built-in" && !organization.HasPrivilegeConsent && user.Name != "admin" {
-		return false, errors.New(i18n.Translate(lang, "organization:adding a new user to the 'built-in' organization is currently disabled. Please note: all users in the 'built-in' organization are global administrators in Casdoor. Refer to the docs: https://casdoor.org/docs/basic/core-concepts#how-does-casdoor-manage-itself. If you still wish to create a user for the 'built-in' organization, go to the organization's settings page and enable the 'Has privilege consent' option."))
+		return errors.New(i18n.Translate(lang, "organization:adding a new user to the 'built-in' organization is currently disabled. Please note: all users in the 'built-in' organization are global administrators in Casdoor. Refer to the docs: https://casdoor.org/docs/basic/core-concepts#how-does-casdoor-manage-itself. If you still wish to create a user for the 'built-in' organization, go to the organization's settings page and enable the 'Has privilege consent' option."))
 	}
 
 	if user.BalanceCurrency == "" {
@@ -1038,20 +1056,20 @@ func AddUser(user *User, lang string) (bool, error) {
 
 	err = user.UpdateUserHash()
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	user.PreHash = user.Hash
 
 	updated, err := user.refreshAvatar()
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	if updated && user.PermanentAvatar != "*" {
 		user.PermanentAvatar, err = getPermanentAvatarUrl(user.Owner, user.Name, user.Avatar, false)
 		if err != nil {
-			return false, err
+			return err
 		}
 	}
 
@@ -1059,16 +1077,9 @@ func AddUser(user *User, lang string) (bool, error) {
 	if rankingItem != nil {
 		count, err := GetUserCount(user.Owner, "", "", "")
 		if err != nil {
-			return false, err
+			return err
 		}
 		user.Ranking = int(count + 1)
-	}
-
-	if user.Groups != nil && len(user.Groups) > 0 {
-		_, err = userEnforcer.UpdateGroupsForUser(user.GetId(), user.Groups)
-		if err != nil {
-			return false, err
-		}
 	}
 
 	isUsernameLowered := conf.GetConfigBool("isUsernameLowered")
@@ -1076,7 +1087,22 @@ func AddUser(user *User, lang string) (bool, error) {
 		user.Name = strings.ToLower(user.Name)
 	}
 
-	affected, err := ormer.Engine.Insert(user)
+	return nil
+}
+
+func syncUserGroups(user *User) error {
+	if user.Groups != nil && len(user.Groups) > 0 {
+		_, err := userEnforcer.UpdateGroupsForUser(user.GetId(), user.Groups)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func insertUserWithSession(session *xorm.Session, user *User) (bool, error) {
+	affected, err := session.Insert(user)
 	if err != nil {
 		return false, err
 	}

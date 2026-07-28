@@ -291,7 +291,7 @@ func (c *ApiController) Signup() {
 		user.Tag = application.DefaultTag
 	}
 
-	affected, err := object.AddUser(user, c.GetAcceptLanguage())
+	affected, err := object.AddSignupUser(user, application, organization, &authForm, invitation, c.GetAcceptLanguage())
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -306,15 +306,6 @@ func (c *ApiController) Signup() {
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
-	}
-
-	if invitation != nil {
-		invitation.UsedCount += 1
-		_, err := object.UpdateInvitation(invitation.GetId(), invitation, c.GetAcceptLanguage())
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
 	}
 
 	if user.Type == "normal-user" {
