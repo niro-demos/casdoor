@@ -53,13 +53,18 @@ func (c *ApiController) GetResources() {
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 
-	isOrgAdmin, ok := c.IsOrgAdmin()
+	requester, ok := c.RequireSignedInUser()
 	if !ok {
 		return
 	}
 
-	if isOrgAdmin {
-		user = ""
+	if !requester.IsGlobalAdmin() {
+		owner = requester.Owner
+		if requester.IsAdmin {
+			user = ""
+		} else {
+			user = requester.Name
+		}
 	}
 
 	if sortField == "Direct" {
