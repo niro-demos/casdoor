@@ -51,9 +51,13 @@ func (c *ApiController) GetTransactions() {
 			}
 		} else {
 			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+			userOwner, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
 			if userErr != nil {
 				c.ResponseError(userErr.Error())
+				return
+			}
+			if owner != userOwner {
+				c.ResponseError("Forbidden")
 				return
 			}
 			transactions, err = object.GetUserTransactions(owner, userName)
@@ -71,9 +75,13 @@ func (c *ApiController) GetTransactions() {
 		// Apply user filter for non-admin users
 		if !c.IsAdmin() {
 			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+			userOwner, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
 			if userErr != nil {
 				c.ResponseError(userErr.Error())
+				return
+			}
+			if owner != userOwner {
+				c.ResponseError("Forbidden")
 				return
 			}
 			field = "user"
@@ -121,13 +129,17 @@ func (c *ApiController) GetTransaction() {
 	// Check if non-admin user is trying to access someone else's transaction
 	if !c.IsAdmin() {
 		user := c.GetSessionUsername()
-		_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+		userOwner, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
 		if userErr != nil {
 			c.ResponseError(userErr.Error())
 			return
 		}
 
 		// Only allow users to view their own transactions
+		if transaction.Owner != userOwner {
+			c.ResponseError("Forbidden")
+			return
+		}
 		if transaction.User != userName {
 			c.ResponseError(c.T("auth:Unauthorized operation"))
 			return
