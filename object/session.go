@@ -40,6 +40,40 @@ type Session struct {
 	ExclusiveSignin bool `xorm:"-"`
 }
 
+// GetMaskedSession redacts the session's raw SessionId values -- the
+// literal beego session-store key, which is the exact value beego issues as
+// the casdoor_session_id cookie and is therefore directly replayable to
+// fully authenticate as the session's owner without their password --
+// unless the caller is the session's own owner or a global admin. This
+// mirrors the GetMaskedToken pattern used for other bearer-credential-
+// bearing objects: non-secret metadata (owner, name, application,
+// createdTime) stays visible so admin session-management UIs (list, count,
+// delete-the-whole-record) keep working, but the raw credential is never
+// exposed to a caller who isn't the session's owner or a global admin.
+func GetMaskedSession(session *Session, isOwnerOrGlobalAdmin bool) *Session {
+	if session == nil || isOwnerOrGlobalAdmin {
+		return session
+	}
+
+	for i := range session.SessionId {
+		session.SessionId[i] = "***"
+	}
+
+	return session
+}
+
+// GetMaskedSessions redacts raw session ids on every session in a listing.
+// Listing endpoints (GetSessions/GetPaginationSessions) can return sessions
+// belonging to many different users in the caller's organization, so --
+// like GetMaskedTokens does for Token listings -- they always mask,
+// regardless of the caller's own privilege level.
+func GetMaskedSessions(sessions []*Session) []*Session {
+	for _, session := range sessions {
+		GetMaskedSession(session, false)
+	}
+	return sessions
+}
+
 func GetSessions(owner string) ([]*Session, error) {
 	sessions := []*Session{}
 	var err error

@@ -47,7 +47,7 @@ func (c *ApiController) GetSessions() {
 			return
 		}
 
-		c.ResponseOk(sessions)
+		c.ResponseOk(object.GetMaskedSessions(sessions))
 	} else {
 		limit := util.ParseInt(limit)
 		count, err := object.GetSessionCount(owner, field, value)
@@ -62,7 +62,7 @@ func (c *ApiController) GetSessions() {
 			return
 		}
 
-		c.ResponseOk(sessions, paginator.Nums())
+		c.ResponseOk(object.GetMaskedSessions(sessions), paginator.Nums())
 	}
 }
 
@@ -82,7 +82,9 @@ func (c *ApiController) GetSingleSession() {
 		return
 	}
 
-	c.ResponseOk(session)
+	isGlobalAdmin, currentUser := c.isGlobalAdmin()
+	isOwner := session != nil && currentUser != nil && currentUser.Owner == session.Owner && currentUser.Name == session.Name
+	c.ResponseOk(object.GetMaskedSession(session, isGlobalAdmin || isOwner))
 }
 
 // UpdateSession
