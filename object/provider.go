@@ -100,8 +100,12 @@ func GetMaskedProvider(provider *Provider, isMaskEnabled bool) *Provider {
 	if provider.ClientSecret != "" {
 		provider.ClientSecret = "***"
 	}
+	provider.ClientId = ""
+	provider.Cert = ""
+	provider.HttpHeaders = nil
 
 	if provider.Category != "Email" {
+		provider.ClientId2 = ""
 		if provider.ClientSecret2 != "" {
 			provider.ClientSecret2 = "***"
 		}

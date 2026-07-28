@@ -37,44 +37,61 @@ func (c *ApiController) GetCerts() {
 	value := c.Ctx.Input.Query("value")
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	if !isGlobalAdmin && user != nil {
+		owner = user.Owner
+	}
 
 	if limit == "" || page == "" {
-		certs, err := object.GetCerts(owner)
+		var certs []*object.Cert
+		var err error
+		if isGlobalAdmin {
+			certs, err = object.GetCerts(owner)
+		} else {
+			certs, err = object.GetOwnerCerts(owner)
+		}
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
 
-		if !c.IsAdmin() {
-			certs, err = object.GetMaskedCerts(certs, nil)
-			if err != nil {
-				c.ResponseError(err.Error())
-				return
-			}
+		certs, err = toCertResponse(certs, isGlobalAdmin)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
 		}
 
 		c.ResponseOk(certs)
 	} else {
 		limit := util.ParseInt(limit)
-		count, err := object.GetCertCount(owner, field, value)
+		var count int64
+		var err error
+		if isGlobalAdmin {
+			count, err = object.GetCertCount(owner, field, value)
+		} else {
+			count, err = object.GetOwnerCertCount(owner, field, value)
+		}
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
 
 		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
-		certs, err := object.GetPaginationCerts(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		var certs []*object.Cert
+		if isGlobalAdmin {
+			certs, err = object.GetPaginationCerts(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		} else {
+			certs, err = object.GetPaginationOwnerCerts(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		}
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
 
-		if !c.IsAdmin() {
-			certs, err = object.GetMaskedCerts(certs, err)
-			if err != nil {
-				c.ResponseError(err.Error())
-				return
-			}
+		certs, err = toCertResponse(certs, isGlobalAdmin)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
 		}
 
 		c.ResponseOk(certs, paginator.Nums())

@@ -49,7 +49,7 @@ func (c *ApiController) GetTokens() {
 			return
 		}
 
-		c.ResponseOk(token)
+		c.ResponseOk(toTokenResponses(token))
 	} else {
 		limit := util.ParseInt(limit)
 		count, err := object.GetTokenCount(owner, organization, field, value)
@@ -65,7 +65,7 @@ func (c *ApiController) GetTokens() {
 			return
 		}
 
-		c.ResponseOk(tokens, paginator.Nums())
+		c.ResponseOk(toTokenResponses(tokens), paginator.Nums())
 	}
 }
 
@@ -96,7 +96,7 @@ func (c *ApiController) GetToken() {
 		return
 	}
 
-	c.ResponseOk(token)
+	c.ResponseOk(toTokenResponse(token))
 }
 
 // UpdateToken
