@@ -203,6 +203,17 @@ func refineFullFilePath(fullFilePath string) (string, string) {
 }
 
 func (c *ApiController) GetProviderFromContext(category string) (*object.Provider, error) {
+	// A caller must be signed in to resolve a provider through this helper,
+	// regardless of which parameter (provider=, field=provider&value=, or a
+	// Direct/<providerName>/ fullFilePath prefix) supplies the provider name.
+	// This must run before any of those branches, since an unauthenticated
+	// caller could otherwise name a real provider directly and skip sign-in
+	// entirely (e.g. via POST /api/upload-resource?provider=<name>).
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return nil, errors.New(c.T("general:Please login first"))
+	}
+
 	providerName := c.Ctx.Input.Query("provider")
 	if providerName == "" {
 		field := c.Ctx.Input.Query("field")
@@ -227,11 +238,6 @@ func (c *ApiController) GetProviderFromContext(category string) (*object.Provide
 		}
 
 		return provider, nil
-	}
-
-	userId, ok := c.RequireSignedIn()
-	if !ok {
-		return nil, errors.New(c.T("general:Please login first"))
 	}
 
 	application, err := object.GetApplicationByUserId(userId)
