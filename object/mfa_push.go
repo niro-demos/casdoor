@@ -65,7 +65,7 @@ func (mfa *PushMfa) Enable(user *User) error {
 	user.MfaPushReceiver = mfa.Secret
 	user.MfaPushProvider = mfa.URL
 
-	_, err := UpdateUser(user.GetId(), user, columns, false)
+	_, err := UpdateUser(user.GetId(), user, columns, false, "en")
 	if err != nil {
 		return err
 	}

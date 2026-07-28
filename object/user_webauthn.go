@@ -87,7 +87,7 @@ func (user *User) CredentialExcludeList() []protocol.CredentialDescriptor {
 
 func (user *User) AddCredentials(credential webauthn.Credential, isGlobalAdmin bool) (bool, error) {
 	user.WebauthnCredentials = append(user.WebauthnCredentials, credential)
-	return UpdateUser(user.GetId(), user, []string{"webauthnCredentials"}, isGlobalAdmin)
+	return UpdateUser(user.GetId(), user, []string{"webauthnCredentials"}, isGlobalAdmin, "en")
 }
 
 func (user *User) DeleteCredentials(credentialIdBase64 string) (bool, error) {

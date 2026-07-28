@@ -60,7 +60,7 @@ func (mfa *RadiusMfa) Enable(user *User) error {
 	user.MfaRadiusUsername = mfa.Secret
 	user.MfaRadiusProvider = mfa.URL
 
-	_, err := UpdateUser(user.GetId(), user, columns, false)
+	_, err := UpdateUser(user.GetId(), user, columns, false, "en")
 	if err != nil {
 		return err
 	}

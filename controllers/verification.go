@@ -543,7 +543,7 @@ func (c *ApiController) ResetEmailOrPhone() {
 			user.Name = user.Email
 			columns = append(columns, "name")
 		}
-		_, err = object.UpdateUser(id, user, columns, false)
+		_, err = object.UpdateUser(id, user, columns, false, c.GetAcceptLanguage())
 	case object.VerifyTypePhone:
 		user.Phone = dest
 		_, err = object.SetUserField(user, "phone", user.Phone)

@@ -366,7 +366,7 @@ func (c *ApiController) UpdateUser() {
 		}
 	}
 
-	affected, err := object.UpdateUser(id, &user, columns, isAdmin)
+	affected, err := object.UpdateUser(id, &user, columns, isAdmin, c.GetAcceptLanguage())
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -660,7 +660,7 @@ func (c *ApiController) SetPassword() {
 	targetUser.LastChangePasswordTime = util.GetCurrentTime()
 
 	if user.Ldap == "" {
-		_, err = object.UpdateUser(userId, targetUser, []string{"password", "password_salt", "need_update_password", "password_type", "last_change_password_time"}, false)
+		_, err = object.UpdateUser(userId, targetUser, []string{"password", "password_salt", "need_update_password", "password_type", "last_change_password_time"}, false, c.GetAcceptLanguage())
 	} else {
 		if isAdmin {
 			err = object.ResetLdapPassword(targetUser, "", newPassword, c.GetAcceptLanguage())
@@ -968,7 +968,7 @@ func (c *ApiController) VerifyIdentification() {
 
 	// Set IsVerified to true upon successful verification
 	user.IsVerified = true
-	_, err = object.UpdateUser(user.GetId(), user, []string{"is_verified"}, false)
+	_, err = object.UpdateUser(user.GetId(), user, []string{"is_verified"}, false, c.GetAcceptLanguage())
 	if err != nil {
 		c.ResponseError(err.Error())
 		return

@@ -217,7 +217,7 @@ func checkSigninErrorTimes(user *User, lang string) error {
 		// reset the error times
 		user.SigninWrongTimes = 0
 
-		_, err := UpdateUser(user.GetId(), user, []string{"signin_wrong_times"}, false)
+		_, err := UpdateUser(user.GetId(), user, []string{"signin_wrong_times"}, false, lang)
 		return err
 	}
 
@@ -274,7 +274,7 @@ func CheckPassword(user *User, password string, lang string, options ...bool) er
 	if isOutdated {
 		user.Password = password
 		user.UpdateUserPassword(organization)
-		_, err = UpdateUser(user.GetId(), user, []string{"password", "password_type", "password_salt"}, true)
+		_, err = UpdateUser(user.GetId(), user, []string{"password", "password_type", "password_salt"}, true, lang)
 		if err != nil {
 			return err
 		}

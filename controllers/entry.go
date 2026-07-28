@@ -148,7 +148,7 @@ func (c *ApiController) UpdateEntry() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdateEntry(id, &entry))
+	c.Data["json"] = wrapActionResponse(object.UpdateEntry(id, &entry, c.IsGlobalAdmin(), c.GetAcceptLanguage()))
 	c.ServeJSON()
 }
 

@@ -501,7 +501,7 @@ func SyncLdapUsers(owner string, syncUsers []LdapUser, ldapId string) (existUser
 			// manually-assigned groups (or groups from other sources) are not
 			// wiped out during synchronization.
 			user.Groups = buildLdapUserGroups(organization.Name, ldap, syncUser.MemberOf, existingGroupNameSet, user.Groups)
-			affected, err := UpdateUser(user.GetId(), user, []string{"groups"}, false)
+			affected, err := UpdateUser(user.GetId(), user, []string{"groups"}, false, "en")
 			if err != nil {
 				return nil, nil, err
 			}

@@ -15,8 +15,10 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
 )
@@ -65,17 +67,22 @@ func GetEntry(id string) (*Entry, error) {
 	return getEntry(owner, name)
 }
 
-func UpdateEntry(id string, entry *Entry) (bool, error) {
+func UpdateEntry(id string, entry *Entry, isGlobalAdmin bool, lang string) (bool, error) {
 	owner, name := util.GetOwnerAndNameFromIdNoCheck(id)
-	if e, err := getEntry(owner, name); err != nil {
+	e, err := getEntry(owner, name)
+	if err != nil {
 		return false, err
 	} else if e == nil {
 		return false, nil
 	}
 
+	if !isGlobalAdmin && e.Owner != entry.Owner {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
+	}
+
 	entry.UpdatedTime = util.GetCurrentTime()
 
-	_, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(entry)
+	_, err = ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(entry)
 	if err != nil {
 		return false, err
 	}
