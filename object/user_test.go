@@ -143,7 +143,7 @@ func TestGetMaskedUsers(t *testing.T) {
 func TestGetMaskedUserRedactsPasswordSaltAndType(t *testing.T) {
 	// Unauthorized viewer (not admin, not self): salt/type must be redacted,
 	// exactly like Password already is.
-	unauthorizedUser := &User{Password: "casdoor", PasswordSalt: "a0a3c851707b5ea401ee", PasswordType: "bcrypt"}
+	unauthorizedUser := &User{Password: "casdoor", PasswordSalt: "synthetic-test-salt-not-real", PasswordType: "bcrypt"}
 	got, err := GetMaskedUser(unauthorizedUser, false)
 	if err != nil {
 		t.Fatalf("GetMaskedUser() unexpected error: %v", err)
@@ -160,12 +160,12 @@ func TestGetMaskedUserRedactsPasswordSaltAndType(t *testing.T) {
 
 	// Control: the record owner/admin must still see their own salt/type —
 	// this fix must not take that away.
-	selfUser := &User{Password: "casdoor", PasswordSalt: "a0a3c851707b5ea401ee", PasswordType: "bcrypt"}
+	selfUser := &User{Password: "casdoor", PasswordSalt: "synthetic-test-salt-not-real", PasswordType: "bcrypt"}
 	got, err = GetMaskedUser(selfUser, true)
 	if err != nil {
 		t.Fatalf("GetMaskedUser() unexpected error: %v", err)
 	}
-	if got.PasswordSalt != "a0a3c851707b5ea401ee" {
+	if got.PasswordSalt != "synthetic-test-salt-not-real" {
 		t.Errorf("GetMaskedUser() for admin/self: PasswordSalt = %q, want unchanged", got.PasswordSalt)
 	}
 	if got.PasswordType != "bcrypt" {
