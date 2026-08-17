@@ -16,6 +16,8 @@ package object
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"slices"
 
@@ -23,6 +25,13 @@ import (
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
 )
+
+// sessionIdRedactedLength is how many hex characters of the SHA-256 digest
+// of a live session id are kept when the id is exposed through the API. It
+// is long enough that two live sessions colliding is not a practical
+// concern, while the digest itself is one-way and cannot be replayed as a
+// Beego session-store key.
+const sessionIdRedactedLength = 16
 
 var (
 	CasdoorApplication  = "app-built-in"
@@ -106,6 +115,47 @@ func GetSingleSession(id string) (*Session, error) {
 	}
 
 	return &session, nil
+}
+
+// RedactSessionId returns an opaque, one-way representation of a live Beego
+// session-store id. It is safe to expose through the API (GetSessions,
+// GetSingleSession) and to use to identify -- but never to re-authenticate
+// as -- a specific session when revoking it: unlike the literal id, it
+// cannot be replayed as a "casdoor_session_id" cookie value.
+func RedactSessionId(sessionId string) string {
+	sum := sha256.Sum256([]byte(sessionId))
+	return hex.EncodeToString(sum[:])[:sessionIdRedactedLength]
+}
+
+// RedactSessionIds redacts every id in a slice; see RedactSessionId.
+func RedactSessionIds(sessionIds []string) []string {
+	redacted := make([]string, len(sessionIds))
+	for i, sessionId := range sessionIds {
+		redacted[i] = RedactSessionId(sessionId)
+	}
+	return redacted
+}
+
+// ResolveSessionId looks up the literal, live session id backing a redacted
+// token previously handed out by RedactSessionId, for the session record
+// identified by id ("owner/name/application"). It returns "" (with a nil
+// error) if the session, or a literal id matching the token, cannot be
+// found, so callers can distinguish "no match" from an actual DB error.
+func ResolveSessionId(id string, redactedSessionId string) (string, error) {
+	session, err := GetSingleSession(id)
+	if err != nil {
+		return "", err
+	}
+	if session == nil {
+		return "", nil
+	}
+
+	for _, literalSessionId := range session.SessionId {
+		if RedactSessionId(literalSessionId) == redactedSessionId {
+			return literalSessionId, nil
+		}
+	}
+	return "", nil
 }
 
 func UpdateSession(id string, session *Session) (bool, error) {
