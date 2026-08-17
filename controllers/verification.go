@@ -36,6 +36,12 @@ const (
 	MfaAuthVerification  = "mfaAuth"
 )
 
+const genericVerificationCodeError = "verification:Wrong verification code!"
+
+func isPublicAccountRecoveryVerification(method string) bool {
+	return method == LoginVerification || method == ForgetVerification
+}
+
 // GetVerifications
 // @Title GetVerifications
 // @Tag Verification API
@@ -309,7 +315,7 @@ func (c *ApiController) SendVerificationCode() {
 			return
 		}
 
-		if vform.Method == LoginVerification || vform.Method == ForgetVerification {
+		if isPublicAccountRecoveryVerification(vform.Method) {
 			if user != nil && util.GetMaskedEmail(user.Email) == vform.Dest {
 				vform.Dest = user.Email
 			}
@@ -321,7 +327,7 @@ func (c *ApiController) SendVerificationCode() {
 			}
 
 			if user == nil {
-				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				c.ResponseOk()
 				return
 			}
 		} else if vform.Method == ResetVerification {
@@ -339,17 +345,25 @@ func (c *ApiController) SendVerificationCode() {
 
 		provider, err = application.GetEmailProvider(vform.Method)
 		if err != nil {
+			if isPublicAccountRecoveryVerification(vform.Method) {
+				c.ResponseOk()
+				return
+			}
 			c.ResponseError(err.Error())
 			return
 		}
 		if provider == nil {
+			if isPublicAccountRecoveryVerification(vform.Method) {
+				c.ResponseOk()
+				return
+			}
 			c.ResponseError(fmt.Sprintf(c.T("verification:please add an Email provider to the \"Providers\" list for the application: %s"), application.Name))
 			return
 		}
 
 		sendResp = object.SendVerificationCodeToEmail(organization, user, provider, clientIp, vform.Dest, vform.Method, c.Ctx.Request.Host, application.Name, application)
 	case object.VerifyTypePhone:
-		if vform.Method == LoginVerification || vform.Method == ForgetVerification {
+		if isPublicAccountRecoveryVerification(vform.Method) {
 			if user != nil && util.GetMaskedPhone(user.Phone) == vform.Dest {
 				vform.Dest = user.Phone
 			}
@@ -358,7 +372,7 @@ func (c *ApiController) SendVerificationCode() {
 				c.ResponseError(err.Error())
 				return
 			} else if user == nil {
-				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				c.ResponseOk()
 				return
 			}
 
@@ -385,10 +399,18 @@ func (c *ApiController) SendVerificationCode() {
 
 		provider, err = application.GetSmsProvider(vform.Method, vform.CountryCode)
 		if err != nil {
+			if isPublicAccountRecoveryVerification(vform.Method) {
+				c.ResponseOk()
+				return
+			}
 			c.ResponseError(err.Error())
 			return
 		}
 		if provider == nil {
+			if isPublicAccountRecoveryVerification(vform.Method) {
+				c.ResponseOk()
+				return
+			}
 			c.ResponseError(fmt.Sprintf(c.T("verification:please add a SMS provider to the \"Providers\" list for the application: %s"), application.Name))
 			return
 		}
@@ -402,6 +424,10 @@ func (c *ApiController) SendVerificationCode() {
 	}
 
 	if sendResp != nil {
+		if isPublicAccountRecoveryVerification(vform.Method) {
+			c.ResponseOk()
+			return
+		}
 		c.ResponseError(sendResp.Error())
 	} else {
 		c.ResponseOk()
@@ -617,7 +643,7 @@ func (c *ApiController) VerifyCode() {
 		c.ResponseError(err.Error())
 		return
 	} else if user == nil {
-		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(authForm.Organization, authForm.Username)))
+		c.ResponseError(c.T(genericVerificationCodeError))
 		return
 	}
 
@@ -641,7 +667,7 @@ func (c *ApiController) VerifyCode() {
 		clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
 		err = object.CheckVerifyCodeWithLimitAndIp(user, clientIp, checkDest, authForm.Code, c.GetAcceptLanguage())
 		if err != nil {
-			c.ResponseError(err.Error())
+			c.ResponseError(c.T(genericVerificationCodeError))
 			return
 		}
 

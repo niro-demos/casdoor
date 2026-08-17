@@ -33,13 +33,14 @@ import (
 	"github.com/casdoor/casdoor/captcha"
 	"github.com/casdoor/casdoor/conf"
 	"github.com/casdoor/casdoor/form"
-	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/idp"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/proxy"
 	"github.com/casdoor/casdoor/util"
 	"golang.org/x/oauth2"
 )
+
+const genericFaceSigninError = "check:Face authentication failed"
 
 func codeToResponse(code *object.Code) *Response {
 	if code.Code == "" {
@@ -585,7 +586,7 @@ func (c *ApiController) Login() {
 				c.ResponseError(err.Error(), nil)
 				return
 			} else if user == nil {
-				c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(authForm.Organization, authForm.Username)))
+				c.ResponseError(c.T(genericFaceSigninError), nil)
 				return
 			}
 
@@ -602,23 +603,23 @@ func (c *ApiController) Login() {
 
 			if faceIdProvider == nil {
 				if err := object.CheckFaceId(user, authForm.FaceId, c.GetAcceptLanguage()); err != nil {
-					c.ResponseError(err.Error(), nil)
+					c.ResponseError(c.T(genericFaceSigninError), nil)
 					return
 				}
 			} else {
 				if !user.HasFaceIdImage() {
-					c.ResponseError(i18n.Translate(c.GetAcceptLanguage(), "check:Face data does not exist, cannot log in"))
+					c.ResponseError(c.T(genericFaceSigninError), nil)
 					return
 				}
 
 				ok, err := user.CheckUserFace(authForm.FaceIdImage, faceIdProvider)
 				if err != nil {
-					c.ResponseError(err.Error(), nil)
+					c.ResponseError(c.T(genericFaceSigninError), nil)
 					return
 				}
 
 				if !ok {
-					c.ResponseError(i18n.Translate(c.GetAcceptLanguage(), "check:Face data mismatch"))
+					c.ResponseError(c.T(genericFaceSigninError), nil)
 					return
 				}
 			}

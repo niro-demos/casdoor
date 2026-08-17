@@ -17,7 +17,6 @@ package controllers
 import (
 	"bytes"
 	"encoding/base64"
-	"fmt"
 	"io"
 
 	"github.com/casdoor/casdoor/form"
@@ -26,6 +25,8 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 )
+
+const genericWebAuthnSigninBeginError = "webauthn:Unable to start sign-in"
 
 // WebAuthnSignupBegin
 // @Title WebAuthnSignupBegin
@@ -138,16 +139,12 @@ func (c *ApiController) WebAuthnSigninBegin() {
 		var user *object.User
 		user, err = object.GetUserByFields(userOwner, userName)
 		if err != nil {
-			c.ResponseError(err.Error())
+			c.ResponseError(c.T(genericWebAuthnSigninBeginError))
 			return
 		}
 
-		if user == nil {
-			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(userOwner, userName)))
-			return
-		}
-		if len(user.WebauthnCredentials) == 0 {
-			c.ResponseError(c.T("webauthn:Found no credentials for this user"))
+		if user == nil || len(user.WebauthnCredentials) == 0 {
+			c.ResponseError(c.T(genericWebAuthnSigninBeginError))
 			return
 		}
 
