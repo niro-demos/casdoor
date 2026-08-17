@@ -103,12 +103,28 @@ func (c *ApiController) GetSubscriptions() {
 // @Success 200 {object} object.Subscription The Response object
 // @router /get-subscription [get]
 func (c *ApiController) GetSubscription() {
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	subscription, err := object.GetSubscription(id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
+	}
+	if subscription != nil && !c.IsAdmin() {
+		userOwner, userName, userErr := util.GetOwnerAndNameFromIdWithError(userId)
+		if userErr != nil {
+			c.ResponseError(userErr.Error())
+			return
+		}
+		if subscription.Owner != userOwner || subscription.User != userName {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
 	}
 
 	c.ResponseOk(subscription)

@@ -231,12 +231,19 @@ func (c *ApiController) DeleteOrganization() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-default-application [get]
 func (c *ApiController) GetDefaultApplication() {
-	userId := c.GetSessionUsername()
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	application, err := object.GetDefaultApplication(id)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+	if !c.requireApplicationRead(application, userId) {
 		return
 	}
 

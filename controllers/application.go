@@ -82,12 +82,19 @@ func (c *ApiController) GetApplications() {
 // @Success 200 {object} object.Application The Response object
 // @router /get-application [get]
 func (c *ApiController) GetApplication() {
-	userId := c.GetSessionUsername()
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	application, err := object.GetApplication(id)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+	if !c.requireApplicationRead(application, userId) {
 		return
 	}
 
@@ -125,7 +132,11 @@ func (c *ApiController) GetApplication() {
 // @Success 200 {object} object.Application The Response object
 // @router /get-user-application [get]
 func (c *ApiController) GetUserApplication() {
-	userId := c.GetSessionUsername()
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return
+	}
+
 	id := c.Ctx.Input.Query("id")
 
 	user, err := object.GetUser(id)
@@ -147,8 +158,36 @@ func (c *ApiController) GetUserApplication() {
 		c.ResponseError(fmt.Sprintf(c.T("general:The organization: %s should have one application at least"), user.Owner))
 		return
 	}
+	if !c.requireApplicationRead(application, userId) {
+		return
+	}
 
 	c.ResponseOk(object.GetMaskedApplication(application, userId))
+}
+
+func (c *ApiController) requireApplicationRead(application *object.Application, userId string) bool {
+	if application == nil {
+		return true
+	}
+	if object.IsAppUser(userId) {
+		return true
+	}
+
+	user, err := object.GetUser(userId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return false
+	}
+	if user == nil {
+		c.ResponseError(c.T("general:Please login first"))
+		return false
+	}
+	if user.IsGlobalAdmin() || user.Owner == application.Organization {
+		return true
+	}
+
+	c.ResponseError(c.T("auth:Unauthorized operation"))
+	return false
 }
 
 // GetOrganizationApplications
