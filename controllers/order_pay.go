@@ -81,6 +81,11 @@ func (c *ApiController) PlaceOrder() {
 		return
 	}
 
+	if owner != user.Owner && !c.IsAdmin() {
+		c.ResponseError(c.T("general:Only admin user can specify a different owner"))
+		return
+	}
+
 	order, err := object.PlaceOrder(owner, productInfos, user, req.CouponCode)
 	if err != nil {
 		c.ResponseError(err.Error())
