@@ -163,6 +163,7 @@
     "Application %s not found": "Ứng dụng %s không tìm thấy"
   },
   "saml_sp": {
+    "provider %s does not exist": "provider %s does not exist",
     "provider %s's category is not SAML": "Danh mục của nhà cung cấp %s không phải là SAML"
   },
   "service": {

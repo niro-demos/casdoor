@@ -163,6 +163,7 @@
     "Application %s not found": "Uygulama %s bulunamadı"
   },
   "saml_sp": {
+    "provider %s does not exist": "provider %s does not exist",
     "provider %s's category is not SAML": "provider %s kategorisi SAML değil"
   },
   "service": {

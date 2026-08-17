@@ -163,6 +163,7 @@
     "Application %s not found": "未找到应用: %s"
   },
   "saml_sp": {
+    "provider %s does not exist": "provider %s does not exist",
     "provider %s's category is not SAML": "提供商: %s不是SAML类型"
   },
   "service": {

@@ -163,6 +163,7 @@
     "Application %s not found": "Додаток %s не знайдено"
   },
   "saml_sp": {
+    "provider %s does not exist": "provider %s does not exist",
     "provider %s's category is not SAML": "категорія провайдера %s не є SAML"
   },
   "service": {

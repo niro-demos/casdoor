@@ -163,6 +163,7 @@
     "Application %s not found": "アプリケーション%sは見つかりません"
   },
   "saml_sp": {
+    "provider %s does not exist": "provider %s does not exist",
     "provider %s's category is not SAML": "プロバイダ %s のカテゴリはSAMLではありません"
   },
   "service": {
