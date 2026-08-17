@@ -213,7 +213,7 @@ func DeleteRole(role *Role) (bool, error) {
 
 	for _, permission := range permissions {
 		permission.Roles = util.DeleteVal(permission.Roles, roleId)
-		_, err := UpdatePermission(permission.GetId(), permission)
+		_, err := UpdatePermission(permission.GetId(), permission, true, "")
 		if err != nil {
 			return false, err
 		}

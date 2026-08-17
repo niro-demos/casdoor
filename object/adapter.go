@@ -15,10 +15,12 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	xormadapter "github.com/casdoor/xorm-adapter/v3"
 	"github.com/xorm-io/core"
@@ -96,13 +98,18 @@ func GetAdapter(id string) (*Adapter, error) {
 	return getAdapter(owner, name)
 }
 
-func UpdateAdapter(id string, adapter *Adapter) (bool, error) {
+func UpdateAdapter(id string, adapter *Adapter, isGlobalAdmin bool, lang string) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
 	}
-	if adapter, err := getAdapter(owner, name); adapter == nil {
+	oldAdapter, err := getAdapter(owner, name)
+	if oldAdapter == nil {
 		return false, err
+	}
+
+	if !isGlobalAdmin && oldAdapter.Owner != adapter.Owner {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
 	if name != adapter.Name {
