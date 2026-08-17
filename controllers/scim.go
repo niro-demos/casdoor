@@ -15,18 +15,27 @@
 package controllers
 
 import (
+	"context"
 	"strings"
 
 	"github.com/casdoor/casdoor/scim"
 )
 
 func (c *RootController) HandleScim() {
-	_, ok := c.RequireAdmin()
+	owner, ok := c.RequireAdmin()
 	if !ok {
 		return
 	}
 
 	path := c.Ctx.Request.URL.Path
 	c.Ctx.Request.URL.Path = strings.TrimPrefix(path, "/scim")
+
+	// Thread the caller's organization into the SCIM resource handlers so
+	// every lookup/mutation is scoped to it. RequireAdmin() returns "" only
+	// for the unrestricted built-in global admin; any other value is an
+	// org-scoped admin who must be confined to that organization.
+	ctx := context.WithValue(c.Ctx.Request.Context(), scim.OwnerContextKey, owner)
+	c.Ctx.Request = c.Ctx.Request.WithContext(ctx)
+
 	scim.Server.ServeHTTP(c.Ctx.ResponseWriter, c.Ctx.Request)
 }

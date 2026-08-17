@@ -28,6 +28,28 @@ type UserResourceHandler struct{}
 // https://github.com/elimity-com/scim/blob/master/resource_handler_test.go Example in-memory resource handler
 // https://datatracker.ietf.org/doc/html/rfc7644#section-3.4 How to query/update resources
 
+// callerOwner returns the organization controllers.HandleScim attached to the
+// request via OwnerContextKey: "" for the unrestricted built-in global admin,
+// or the caller's own organization name for an org-scoped admin. A request
+// with no value attached (e.g. a handler invoked outside HandleScim, such as
+// in tests) is treated as unrestricted.
+func callerOwner(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if owner, ok := r.Context().Value(OwnerContextKey).(string); ok {
+		return owner
+	}
+	return ""
+}
+
+// authorizedForOwner reports whether a caller scoped to callerOwner may read
+// or write a resource owned by resourceOwner. An empty callerOwner means the
+// caller is the unrestricted built-in global admin.
+func authorizedForOwner(callerOwner, resourceOwner string) bool {
+	return callerOwner == "" || callerOwner == resourceOwner
+}
+
 func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
 	resource := &scim.Resource{Attributes: attrs}
 	err := AddScimUser(resource)
@@ -35,14 +57,14 @@ func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttribut
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := GetScimUser(id)
+	user, err := object.GetUserByUserIdOnly(id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if resource == nil {
+	if user == nil || !authorizedForOwner(callerOwner(r), user.Owner) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
-	return *resource, nil
+	return *user2resource(user), nil
 }
 
 func (h UserResourceHandler) Delete(r *http.Request, id string) error {
@@ -50,7 +72,7 @@ func (h UserResourceHandler) Delete(r *http.Request, id string) error {
 	if err != nil {
 		return err
 	}
-	if user == nil {
+	if user == nil || !authorizedForOwner(callerOwner(r), user.Owner) {
 		return errors.ScimErrorResourceNotFound(id)
 	}
 	_, err = object.DeleteUser(user)
@@ -58,8 +80,9 @@ func (h UserResourceHandler) Delete(r *http.Request, id string) error {
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	owner := callerOwner(r)
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		count, err := object.GetUserCount(owner, "", "", "")
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -68,7 +91,7 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 
 	resources := make([]scim.Resource, 0)
 	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	users, err := object.GetPaginationUsers(owner, params.StartIndex-1, params.Count, "", "", "", "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -86,7 +109,7 @@ func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
+	if user == nil || !authorizedForOwner(callerOwner(r), user.Owner) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	return UpdateScimUserByPatchOperation(id, operations)
@@ -97,7 +120,7 @@ func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.Reso
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
+	if user == nil || !authorizedForOwner(callerOwner(r), user.Owner) {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	resource := &scim.Resource{Attributes: attrs}
