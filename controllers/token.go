@@ -506,10 +506,11 @@ func (c *ApiController) ValidateOAuth(ignoreValidSecret bool) (ok bool, applicat
 func (c *ApiController) IntrospectToken() {
 	tokenValue := c.Ctx.Input.Query("token")
 
-	ok, application, _, _, err := c.ValidateOAuth(false)
+	ok, callerApplication, _, _, err := c.ValidateOAuth(false)
 	if err != nil || !ok {
 		return
 	}
+	application := callerApplication
 
 	respondWithInactiveToken := func() {
 		c.Data["json"] = &object.IntrospectionResponse{Active: false}
@@ -606,18 +607,29 @@ func (c *ApiController) IntrospectToken() {
 	}
 
 	if token != nil {
-		application, err = object.GetApplication(fmt.Sprintf("%s/%s", token.Owner, token.Application))
+		owningApplication, err := object.GetApplication(fmt.Sprintf("%s/%s", token.Owner, token.Application))
 		if err != nil {
 			c.ResponseTokenError(object.InvalidClient, err.Error())
 			return
 		}
-		if application == nil {
+		if owningApplication == nil {
 			c.ResponseError(fmt.Sprintf(c.T("auth:The application: %s does not exist"), token.Application))
 			return
 		}
 
+		// The token's actual owning application must match the application
+		// the caller authenticated as. Without this check, any registered
+		// OAuth client with valid credentials of its own could introspect a
+		// token issued to a completely different, unrelated application
+		// (including one in another organization/tenant) and receive its
+		// full metadata.
+		if owningApplication.ClientId != callerApplication.ClientId {
+			respondWithInactiveToken()
+			return
+		}
+
 		introspectionResponse.TokenType = token.TokenType
-		introspectionResponse.ClientId = application.ClientId
+		introspectionResponse.ClientId = owningApplication.ClientId
 
 		// Expose DPoP key binding in the introspection response (RFC 9449 §8).
 		if token.DPoPJkt != "" {
