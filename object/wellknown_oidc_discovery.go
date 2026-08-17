@@ -79,6 +79,26 @@ func isIpAddress(host string) bool {
 	return ip != nil
 }
 
+// isHostAllowlisted reports whether host has been explicitly marked as a
+// trusted origin by an administrator via the `originAllowlist` config value
+// (a comma-separated list of exact host[:port] values, analogous to the
+// `origin` setting). It is the escape hatch operators use to keep
+// multi-domain deployments working without setting a single fixed `origin`.
+func isHostAllowlisted(host string) bool {
+	allowlist := conf.GetConfigString("originAllowlist")
+	if allowlist == "" {
+		return false
+	}
+
+	for _, allowedHost := range strings.Split(allowlist, ",") {
+		if strings.EqualFold(strings.TrimSpace(allowedHost), host) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func getOriginFromHostInternal(host string) (string, string) {
 	origin := conf.GetConfigString("origin")
 	if origin != "" {
@@ -88,19 +108,32 @@ func getOriginFromHostInternal(host string) (string, string) {
 	isDev := conf.GetConfigString("runmode") == "dev"
 	// "door.casdoor.com"
 	protocol := "https://"
-	if !strings.Contains(host, ".") {
-		// "localhost:8000" or "computer-name:80"
-		protocol = "http://"
-	} else if isIpAddress(host) {
+	isDomainHost := strings.Contains(host, ".") && !isIpAddress(host)
+	if !isDomainHost {
+		// "localhost:8000" or "computer-name:80" or an IP literal like
 		// "192.168.0.10"
 		protocol = "http://"
 	}
 
 	if host == "localhost:8000" && isDev {
 		return fmt.Sprintf("%s%s", protocol, "localhost:7001"), fmt.Sprintf("%s%s", protocol, "localhost:8000")
-	} else {
-		return fmt.Sprintf("%s%s", protocol, host), fmt.Sprintf("%s%s", protocol, host)
 	}
+
+	// SECURITY (TC-D12B1098): the `origin` config is unset, so the server
+	// has no authoritative notion of its own address. The HTTP Host header
+	// is fully attacker-controlled input -- any unauthenticated caller can
+	// set it to an arbitrary value. Trusting a domain-shaped Host
+	// unconditionally lets a caller forge the `iss` claim baked into signed
+	// tokens and the OIDC discovery document's issuer/endpoint URLs
+	// (issuer-confusion against relying parties). Bare/IP-literal hosts
+	// (typical of direct/local/dev access, e.g. "localhost:8000",
+	// "127.0.0.1:18000") are left as before; a real domain name is only
+	// trusted once an administrator has allow-listed it.
+	if isDomainHost && !isHostAllowlisted(host) {
+		return "", ""
+	}
+
+	return fmt.Sprintf("%s%s", protocol, host), fmt.Sprintf("%s%s", protocol, host)
 }
 
 func getOriginFromHost(host string) (string, string) {
