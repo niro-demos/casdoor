@@ -188,6 +188,33 @@ func UpdateOrder(id string, order *Order) (bool, error) {
 	return affected != 0, nil
 }
 
+// lockOrderForPayment atomically transitions an order from "Created" to
+// "Pending". The UPDATE's WHERE clause only matches a row that is still
+// "Created", so when multiple callers race to pay the same order, at most one
+// of them flips the state and is allowed to create a Payment for it; the
+// others observe 0 affected rows and must not proceed.
+func lockOrderForPayment(owner, name string) (bool, error) {
+	affected, err := ormer.Engine.Where("owner = ? AND name = ? AND state = ?", owner, name, "Created").Cols("state").Update(&Order{State: "Pending"})
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+// unlockOrderPayment releases a claim taken by lockOrderForPayment, restoring
+// the order to "Created" so the buyer can retry after a failed payment
+// attempt. It is a no-op (0 affected rows, no error) if the order already
+// moved on to its final state.
+func unlockOrderPayment(owner, name string) (bool, error) {
+	affected, err := ormer.Engine.Where("owner = ? AND name = ? AND state = ?", owner, name, "Pending").Cols("state").Update(&Order{State: "Created"})
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
 func AddOrder(order *Order) (bool, error) {
 	affected, err := ormer.Engine.Insert(order)
 	if err != nil {
