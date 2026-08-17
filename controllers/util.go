@@ -203,6 +203,16 @@ func refineFullFilePath(fullFilePath string) (string, string) {
 }
 
 func (c *ApiController) GetProviderFromContext(category string) (*object.Provider, error) {
+	// The signed-in check must run unconditionally, before any
+	// provider-lookup branch below. Previously it only ran on the
+	// provider-empty path, so any caller who supplied a `provider` (or
+	// field=provider/value, or a fullFilePath with a provider prefix) query
+	// parameter skipped authentication entirely.
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return nil, errors.New(c.T("general:Please login first"))
+	}
+
 	providerName := c.Ctx.Input.Query("provider")
 	if providerName == "" {
 		field := c.Ctx.Input.Query("field")
@@ -227,11 +237,6 @@ func (c *ApiController) GetProviderFromContext(category string) (*object.Provide
 		}
 
 		return provider, nil
-	}
-
-	userId, ok := c.RequireSignedIn()
-	if !ok {
-		return nil, errors.New(c.T("general:Please login first"))
 	}
 
 	application, err := object.GetApplicationByUserId(userId)
