@@ -143,11 +143,14 @@ func (c *ApiController) WebAuthnSigninBegin() {
 		}
 
 		if user == nil {
-			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(userOwner, userName)))
+			// Do not reveal whether the user exists (TC-367B572B): an
+			// unauthenticated caller must not be able to distinguish "no
+			// such user" from "user has no WebAuthn credential enrolled".
+			c.RespondNoSigninCredential(fmt.Sprintf("no such user: %s", util.GetId(userOwner, userName)))
 			return
 		}
 		if len(user.WebauthnCredentials) == 0 {
-			c.ResponseError(c.T("webauthn:Found no credentials for this user"))
+			c.RespondNoSigninCredential(fmt.Sprintf("user %s has no WebAuthn credentials enrolled", util.GetId(userOwner, userName)))
 			return
 		}
 

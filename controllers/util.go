@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/beego/beego/v2/core/logs"
 	"github.com/casdoor/casdoor/conf"
 	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/object"
@@ -61,6 +62,20 @@ func (c *ApiController) ResponseError(error string, data ...interface{}) {
 
 func (c *ApiController) T(error string) string {
 	return i18n.Translate(c.GetAcceptLanguage(), error)
+}
+
+// RespondNoSigninCredential writes the single, existence-independent error
+// response shared by unauthenticated pre-login endpoints that check whether
+// a user has a passwordless factor enrolled (WebAuthn, Face ID).
+//
+// Both "no such user" and "user exists but has no enrolled factor" must
+// produce the exact same client-visible message: otherwise an unauthenticated
+// caller can enumerate valid usernames per organization by classifying the
+// response text (TC-367B572B). reason is logged server-side only and never
+// reaches the response.
+func (c *ApiController) RespondNoSigninCredential(reason string) {
+	logs.Warning("signin-begin: %s", reason)
+	c.ResponseError(c.T("check:password or code is incorrect"))
 }
 
 // GetAcceptLanguage ...
