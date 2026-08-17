@@ -238,6 +238,10 @@ func (c *ApiController) UpdateCertDomainExpire() {
 		c.ResponseError(err.Error())
 		return
 	}
+	if cert == nil {
+		c.ResponseError("The cert: " + id + " does not exist")
+		return
+	}
 
 	domainExpireTime, err := object.GetDomainExpireTime(cert.Name)
 	if err != nil {
