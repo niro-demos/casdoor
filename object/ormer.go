@@ -76,6 +76,10 @@ func GetExportFilePath() string {
 	return exportFilePath
 }
 
+func SetCreateDatabaseForTesting(value bool) {
+	createDatabase = value
+}
+
 func InitConfig() {
 	err := web.LoadAppConfig("ini", "../conf/app.conf")
 	if err != nil {
