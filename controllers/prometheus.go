@@ -26,7 +26,12 @@ import (
 // @Success 200 {object} object.PrometheusInfo The Response object
 // @router /get-prometheus-info [get]
 func (c *ApiController) GetPrometheusInfo() {
-	_, ok := c.RequireAdmin()
+	// This returns raw, unfiltered Prometheus telemetry for every request
+	// Casdoor has served platform-wide, including other tenants' embedded
+	// resource identifiers - so it must be restricted to the platform's
+	// global administrator. RequireAdmin() would also pass for a
+	// tenant-scoped organization admin, which is too broad here.
+	_, ok := c.RequireGlobalAdmin()
 	if !ok {
 		return
 	}

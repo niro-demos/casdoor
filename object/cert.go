@@ -72,16 +72,31 @@ func GetMaskedCerts(certs []*Cert, err error) ([]*Cert, error) {
 	return certs, nil
 }
 
-func GetCertCount(owner, field, value string) (int64, error) {
+// GetCertCount returns the number of certs visible to the caller for the
+// given owner. The platform's globally-owned certs (owner == "admin") are
+// only merged into the count when isGlobalAdmin is true - only the
+// platform's global administrator may see certs outside their own org.
+func GetCertCount(owner string, isGlobalAdmin bool, field, value string) (int64, error) {
 	session := GetSession("", -1, -1, field, value, "", "")
-	return session.Where("owner = ? or owner = ? ", "admin", owner).Count(&Cert{})
+	if isGlobalAdmin {
+		return session.Where("owner = ? or owner = ? ", "admin", owner).Count(&Cert{})
+	}
+	return session.Where("owner = ?", owner).Count(&Cert{})
 }
 
-func GetCerts(owner string) ([]*Cert, error) {
+// GetCerts returns the certs visible to the caller for the given owner. The
+// platform's globally-owned certs (owner == "admin", which includes the
+// JWT-signing cert-built-in) are only merged in when isGlobalAdmin is true -
+// a tenant-scoped organization admin must only ever see its own org's certs.
+func GetCerts(owner string, isGlobalAdmin bool) ([]*Cert, error) {
 	certs := []*Cert{}
 	db := ormer.Engine.NewSession()
-	if owner != "" {
-		db = db.Where("owner = ? or owner = ? ", "admin", owner)
+	if isGlobalAdmin {
+		if owner != "" {
+			db = db.Where("owner = ? or owner = ? ", "admin", owner)
+		}
+	} else {
+		db = db.Where("owner = ?", owner)
 	}
 	err := db.Desc("created_time").Find(&certs, &Cert{})
 	if err != nil {
@@ -91,10 +106,17 @@ func GetCerts(owner string) ([]*Cert, error) {
 	return certs, nil
 }
 
-func GetPaginationCerts(owner string, offset, limit int, field, value, sortField, sortOrder string) ([]*Cert, error) {
+// GetPaginationCerts is the paginated counterpart of GetCerts; see its
+// isGlobalAdmin doc for the scoping rule.
+func GetPaginationCerts(owner string, isGlobalAdmin bool, offset, limit int, field, value, sortField, sortOrder string) ([]*Cert, error) {
 	certs := []*Cert{}
 	session := GetSession("", offset, limit, field, value, sortField, sortOrder)
-	err := session.Where("owner = ? or owner = ? ", "admin", owner).Find(&certs)
+	var err error
+	if isGlobalAdmin {
+		err = session.Where("owner = ? or owner = ? ", "admin", owner).Find(&certs)
+	} else {
+		err = session.Where("owner = ?", owner).Find(&certs)
+	}
 	if err != nil {
 		return certs, err
 	}

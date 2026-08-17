@@ -146,6 +146,25 @@ func (c *ApiController) RequireAdmin() (string, bool) {
 	return user.Owner, true
 }
 
+// RequireGlobalAdmin requires the signed-in user to be the platform's
+// built-in global administrator - unlike RequireAdmin, a tenant-scoped
+// organization admin (user.IsAdmin == true within their own org) does not
+// satisfy this check. Use it for operations that are global/server-wide
+// rather than scoped to a single organization.
+func (c *ApiController) RequireGlobalAdmin() (string, bool) {
+	user, ok := c.RequireSignedInUser()
+	if !ok {
+		return "", false
+	}
+
+	if !user.IsGlobalAdmin() {
+		c.ResponseError(c.T("general:this operation requires administrator to perform"))
+		return "", false
+	}
+
+	return user.Owner, true
+}
+
 func (c *ApiController) IsOrgAdmin() (bool, bool) {
 	userId, ok := c.RequireSignedIn()
 	if !ok {
