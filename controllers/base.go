@@ -205,8 +205,19 @@ func (c *ApiController) GetSessionOidc() (string, string) {
 	return scope, aud
 }
 
-// SetSessionUsername ...
+// SetSessionUsername binds the given user id to the session as the
+// authenticated identity. Every caller that passes a non-empty user is
+// establishing a new authenticated identity on this session (login,
+// signup auto-login, MFA/WebAuthn completion, etc.), so the session id is
+// rotated first: this prevents session fixation, where a session id issued
+// to a client before it authenticates would otherwise remain valid -- now
+// carrying a signed-in identity -- after a successful login.
+// SetSessionUsername("") (logout) does not rotate here; ClearUserSession
+// already does so explicitly.
 func (c *ApiController) SetSessionUsername(user string) {
+	if user != "" {
+		_ = c.SessionRegenerateID()
+	}
 	c.SetSession("username", user)
 }
 
