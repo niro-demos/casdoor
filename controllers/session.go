@@ -47,7 +47,7 @@ func (c *ApiController) GetSessions() {
 			return
 		}
 
-		c.ResponseOk(sessions)
+		c.ResponseOk(redactSessionsForResponse(sessions))
 	} else {
 		limit := util.ParseInt(limit)
 		count, err := object.GetSessionCount(owner, field, value)
@@ -62,8 +62,34 @@ func (c *ApiController) GetSessions() {
 			return
 		}
 
-		c.ResponseOk(sessions, paginator.Nums())
+		c.ResponseOk(redactSessionsForResponse(sessions), paginator.Nums())
 	}
+}
+
+// redactSessionsForResponse returns copies of sessions with SessionId
+// replaced by an opaque, non-replayable token (object.RedactSessionId), so
+// GET /api/get-sessions never serializes a live, authenticatable Beego
+// session-store id back to the caller (TC-E1F03605). The originals, and the
+// DB rows they came from, are left untouched -- internal comparisons
+// (IsSessionDuplicated, DeleteSessionId, AddSession, ...) keep operating on
+// the literal ids.
+func redactSessionsForResponse(sessions []*object.Session) []*object.Session {
+	redacted := make([]*object.Session, len(sessions))
+	for i, session := range sessions {
+		redacted[i] = redactSessionForResponse(session)
+	}
+	return redacted
+}
+
+// redactSessionForResponse is the single-session counterpart of
+// redactSessionsForResponse; see its doc for why this exists.
+func redactSessionForResponse(session *object.Session) *object.Session {
+	if session == nil {
+		return nil
+	}
+	sessionCopy := *session
+	sessionCopy.SessionId = object.RedactSessionIds(session.SessionId)
+	return &sessionCopy
 }
 
 // GetSingleSession
@@ -82,7 +108,7 @@ func (c *ApiController) GetSingleSession() {
 		return
 	}
 
-	c.ResponseOk(session)
+	c.ResponseOk(redactSessionForResponse(session))
 }
 
 // UpdateSession
@@ -140,14 +166,31 @@ func (c *ApiController) DeleteSession() {
 
 	curSessionId := c.Ctx.Input.CruSession.SessionID(context.Background())
 
+	// sessionId, when present, is the redacted token the client read back
+	// from GetSessions/GetSingleSession (see redactSessionForResponse), not
+	// the literal live id -- callers never see the literal id anymore.
 	sessionId := c.Ctx.Input.Query("sessionId")
-	if curSessionId == sessionId && sessionId != "" {
+	if sessionId != "" && object.RedactSessionId(curSessionId) == sessionId {
 		c.ResponseError(fmt.Sprintf(c.T("session:session id %s is the current session and cannot be deleted"), curSessionId))
 		return
 	}
 
 	if sessionId != "" {
-		c.Data["json"] = wrapActionResponse(object.DeleteSessionId(util.GetSessionId(session.Owner, session.Name, session.Application), sessionId))
+		targetId := util.GetSessionId(session.Owner, session.Name, session.Application)
+		literalSessionId, err := object.ResolveSessionId(targetId, sessionId)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if literalSessionId == "" {
+			// No live session currently matches the redacted token (e.g. it
+			// already expired or was already deleted); nothing to do.
+			c.Data["json"] = wrapActionResponse(false)
+			c.ServeJSON()
+			return
+		}
+
+		c.Data["json"] = wrapActionResponse(object.DeleteSessionId(targetId, literalSessionId))
 		c.ServeJSON()
 		return
 	}
