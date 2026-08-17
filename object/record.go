@@ -185,6 +185,20 @@ func GetRecords() ([]*Record, error) {
 	return records, nil
 }
 
+// GetRecordsByOrganization returns every Record belonging to the given
+// organization, newest first. Used to scope the unpaginated GET
+// /api/get-records path to the caller's own organization, mirroring the
+// scoping already applied on the paginated path via filterRecord.
+func GetRecordsByOrganization(organization string) ([]*Record, error) {
+	records := []*Record{}
+	err := ormer.Engine.Desc("id").Find(&records, &Record{Organization: organization})
+	if err != nil {
+		return records, err
+	}
+
+	return records, nil
+}
+
 func GetPaginationRecords(offset, limit int, field, value, sortField, sortOrder string, filterRecord *Record) ([]*Record, error) {
 	records := []*Record{}
 

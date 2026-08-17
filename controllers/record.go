@@ -45,7 +45,18 @@ func (c *ApiController) GetRecords() {
 	organizationName := c.Ctx.Input.Query("organizationName")
 
 	if limit == "" || page == "" {
-		records, err := object.GetRecords()
+		// A non-global org admin (organization != "") must only ever see
+		// their own organization's records here, matching the scoping the
+		// paginated branch below already applies via filterRecord. Only the
+		// verified global admin (organization == "", per RequireAdmin) sees
+		// every organization's records.
+		var records []*object.Record
+		var err error
+		if organization == "" {
+			records, err = object.GetRecords()
+		} else {
+			records, err = object.GetRecordsByOrganization(organization)
+		}
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
