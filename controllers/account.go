@@ -115,6 +115,11 @@ func (c *ApiController) Signup() {
 		return
 	}
 
+	if application.Organization != authForm.Organization {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
 	err = object.CheckEntryIp(clientIp, nil, application, organization, c.GetAcceptLanguage())
 	if err != nil {
