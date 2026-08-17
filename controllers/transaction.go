@@ -50,10 +50,13 @@ func (c *ApiController) GetTransactions() {
 				transactions, err = object.GetTransactions(owner)
 			}
 		} else {
-			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+			userName, ok, userErr := scopedTransactionUser(owner, c.GetSessionUsername(), false)
 			if userErr != nil {
 				c.ResponseError(userErr.Error())
+				return
+			}
+			if !ok {
+				c.ResponseError("Forbidden")
 				return
 			}
 			transactions, err = object.GetUserTransactions(owner, userName)
@@ -70,10 +73,13 @@ func (c *ApiController) GetTransactions() {
 
 		// Apply user filter for non-admin users
 		if !c.IsAdmin() {
-			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+			userName, ok, userErr := scopedTransactionUser(owner, c.GetSessionUsername(), false)
 			if userErr != nil {
 				c.ResponseError(userErr.Error())
+				return
+			}
+			if !ok {
+				c.ResponseError("Forbidden")
 				return
 			}
 			field = "user"
@@ -95,6 +101,21 @@ func (c *ApiController) GetTransactions() {
 
 		c.ResponseOk(transactions, paginator.Nums())
 	}
+}
+
+func scopedTransactionUser(owner, sessionUser string, isAdmin bool) (string, bool, error) {
+	if isAdmin {
+		return "", true, nil
+	}
+
+	sessionOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+	if err != nil {
+		return "", false, err
+	}
+	if sessionOwner != owner {
+		return "", false, nil
+	}
+	return sessionUserName, true, nil
 }
 
 // GetTransaction

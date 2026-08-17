@@ -80,6 +80,10 @@ func (c *ApiController) PlaceOrder() {
 		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), userId))
 		return
 	}
+	if err := ensureOrderOwnerMatchesUser(owner, user); err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
 
 	order, err := object.PlaceOrder(owner, productInfos, user, req.CouponCode)
 	if err != nil {
@@ -88,6 +92,16 @@ func (c *ApiController) PlaceOrder() {
 	}
 
 	c.ResponseOk(order)
+}
+
+func ensureOrderOwnerMatchesUser(owner string, user *object.User) error {
+	if user == nil {
+		return fmt.Errorf("general:Please login first")
+	}
+	if owner != user.Owner {
+		return fmt.Errorf("Forbidden")
+	}
+	return nil
 }
 
 // PayOrder
