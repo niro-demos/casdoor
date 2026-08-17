@@ -1084,7 +1084,7 @@ func (c *ApiController) Login() {
 					// Increment invitation usage count
 					if invitation != nil {
 						invitation.UsedCount += 1
-						_, err = object.UpdateInvitation(invitation.GetId(), invitation, c.GetAcceptLanguage())
+						_, err = object.UpdateInvitation(invitation.GetId(), invitation, true, c.GetAcceptLanguage())
 						if err != nil {
 							c.ResponseError(err.Error())
 							return

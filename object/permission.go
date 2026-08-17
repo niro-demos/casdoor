@@ -15,10 +15,12 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
 )
@@ -126,16 +128,20 @@ func checkPermissionValid(permission *Permission) error {
 	return nil
 }
 
-func UpdatePermission(id string, permission *Permission) (bool, error) {
-	err := checkPermissionValid(permission)
-	if err != nil {
-		return false, err
-	}
-
+func UpdatePermission(id string, permission *Permission, isGlobalAdmin bool, lang string) (bool, error) {
 	owner, name := util.GetOwnerAndNameFromIdNoCheck(id)
 	oldPermission, err := getPermission(owner, name)
 	if oldPermission == nil {
 		return false, nil
+	}
+
+	if !isGlobalAdmin && oldPermission.Owner != permission.Owner {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
+	}
+
+	err = checkPermissionValid(permission)
+	if err != nil {
+		return false, err
 	}
 
 	if permission.ResourceType == "Application" && permission.Model != "" {
