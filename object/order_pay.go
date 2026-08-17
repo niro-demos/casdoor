@@ -136,6 +136,37 @@ func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) 
 	if order.State != "Created" {
 		return nil, nil, fmt.Errorf("cannot pay for order: %s, current state is %s", order.GetId(), order.State)
 	}
+
+	// Atomically claim the order for this payment attempt: the underlying UPDATE
+	// only succeeds while the order is still "Created", so when multiple
+	// pay-order calls race (or a caller retries before an earlier attempt
+	// resolves), only the first one is allowed to proceed and create a Payment
+	// below; every other caller fails here instead of each minting its own
+	// Payment row for the same order.
+	locked, err := lockOrderForPayment(order.Owner, order.Name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !locked {
+		state := order.State
+		if current, getErr := getOrder(order.Owner, order.Name); getErr == nil && current != nil {
+			state = current.State
+		}
+		return nil, nil, fmt.Errorf("cannot pay for order: %s, current state is %s", order.GetId(), state)
+	}
+	order.State = "Pending"
+
+	// If this call returns an error before the order reaches its final state
+	// below, release the claim so the buyer can retry instead of the order
+	// being stuck in "Pending" forever.
+	defer func() {
+		if err != nil {
+			if _, unlockErr := unlockOrderPayment(order.Owner, order.Name); unlockErr != nil {
+				logs.Warning(fmt.Sprintf("PayOrder: failed to release payment lock on order %s after error: %v", order.GetId(), unlockErr))
+			}
+		}
+	}()
+
 	productNames := order.Products
 	products, err := getOrderProducts(order.Owner, productNames)
 	if err != nil {

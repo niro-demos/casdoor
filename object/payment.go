@@ -301,6 +301,12 @@ func NotifyPayment(body []byte, owner string, paymentName string, lang string) (
 		return nil, fmt.Errorf("the order: %s does not exist", payment.Order)
 	}
 
+	// Defense in depth: PayOrder now allows at most one live Payment per order,
+	// but if a sibling Payment somehow already fulfilled this order (it is
+	// already "Paid" from a different Payment), don't credit balance or grant
+	// fulfillment a second time for this payment's confirmation.
+	alreadyFulfilledBySibling := order.State == "Paid" && order.Payment != "" && order.Payment != payment.Name
+
 	if payment.State == pp.PaymentStatePaid {
 		order.State = "Paid"
 		order.Message = "Payment successful"
@@ -323,7 +329,7 @@ func NotifyPayment(body []byte, owner string, paymentName string, lang string) (
 		return nil, err
 	}
 
-	if payment.State == pp.PaymentStatePaid {
+	if payment.State == pp.PaymentStatePaid && !alreadyFulfilledBySibling {
 		// Get provider, product and user for transaction creation
 		provider, err := getProvider(payment.Owner, payment.Provider)
 		if err != nil {
