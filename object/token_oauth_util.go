@@ -413,7 +413,7 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		}
 	}
 
-	if clientSecret != "" && application.ClientSecret != clientSecret {
+	if application.ClientSecret != "" && application.ClientSecret != clientSecret {
 		return &TokenError{
 			Error:            InvalidClient,
 			ErrorDescription: "client_secret is invalid",
@@ -423,6 +423,21 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 	// check whether the refresh token is valid, and has not expired.
 	token, err := GetTokenByRefreshToken(refreshToken)
 	if err != nil || token == nil {
+		return &TokenError{
+			Error:            InvalidGrant,
+			ErrorDescription: "refresh token is invalid or revoked",
+		}, nil
+	}
+
+	// The refresh token must be redeemed through the same application (and
+	// therefore the same tenant/organization) it was originally issued to.
+	// Without this check, any caller holding a valid refresh token for ANY
+	// application could redeem it using a different, unrelated
+	// application's own client_id/client_secret: the code below resolves
+	// the user via application.Organization (attacker-supplied) combined
+	// with token.User (the original username), minting a token for
+	// whichever user has that same username in the attacker-chosen tenant.
+	if token.Application != application.Name || token.Organization != application.Organization {
 		return &TokenError{
 			Error:            InvalidGrant,
 			ErrorDescription: "refresh token is invalid or revoked",
