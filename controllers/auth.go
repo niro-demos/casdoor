@@ -1213,7 +1213,7 @@ func (c *ApiController) Login() {
 			}
 
 			if !passed {
-				err = mfaUtil.Verify(authForm.Passcode)
+				err = object.CheckMfaPasscode(user, mfaUtil, authForm.Passcode, c.GetAcceptLanguage())
 				if err != nil {
 					c.Ctx.Input.SetParam("recordDetail", object.SigninReasonMfaFailed)
 					c.ResponseError(err.Error())

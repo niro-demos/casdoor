@@ -69,6 +69,31 @@ func GetMfaUtil(mfaType string, config *MfaProps) MfaInterface {
 	return nil
 }
 
+// CheckMfaPasscode verifies a second-factor passcode (e.g. TOTP) against
+// mfaUtil, applying the same signin-error-times rate limiting/lockout that
+// CheckPassword and CheckSigninCode already apply to password and
+// verification-code attempts (see object/check.go and object/verification.go).
+// Without this, an attacker holding a valid password could submit unlimited
+// guesses against the second factor. It rejects the attempt immediately if
+// the account is already frozen, otherwise verifies the passcode, records a
+// failure (incrementing the wrong-attempt counter and freezing the account
+// once the limit is reached) on a wrong passcode, and resets the counter on
+// a correct one - mirroring the password lockout exactly.
+func CheckMfaPasscode(user *User, mfaUtil MfaInterface, passcode string, lang string) error {
+	// check the login error times, same as CheckPassword does before checking the password itself
+	err := checkSigninErrorTimes(user, lang)
+	if err != nil {
+		return err
+	}
+
+	err = mfaUtil.Verify(passcode)
+	if err != nil {
+		return recordSigninErrorInfo(user, lang)
+	}
+
+	return resetUserSigninErrorTimes(user)
+}
+
 func MfaRecover(user *User, recoveryCode string) error {
 	hit := false
 
