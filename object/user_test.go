@@ -132,6 +132,47 @@ func TestGetMaskedUsers(t *testing.T) {
 	}
 }
 
+// TestGetMaskedUserRedactsPasswordSaltAndType is a regression test for
+// TC-4D7608B4: GetMaskedUser() must strip PasswordSalt/PasswordType for any
+// caller that is not the record's owner/admin, the same way it already
+// strips Password itself. These fields are credential-cracking-support
+// metadata (bcrypt salt + hash algorithm) and must never reach an
+// unauthorized viewer, independent of any organization-level
+// AccountItems/IsProfilePublic configuration (that gate is handled
+// separately by GetFilteredUser and is out of scope here).
+func TestGetMaskedUserRedactsPasswordSaltAndType(t *testing.T) {
+	// Unauthorized viewer (not admin, not self): salt/type must be redacted,
+	// exactly like Password already is.
+	unauthorizedUser := &User{Password: "casdoor", PasswordSalt: "synthetic-test-salt-not-real", PasswordType: "bcrypt"}
+	got, err := GetMaskedUser(unauthorizedUser, false)
+	if err != nil {
+		t.Fatalf("GetMaskedUser() unexpected error: %v", err)
+	}
+	if got.PasswordSalt != "" {
+		t.Errorf("GetMaskedUser() for unauthorized viewer: PasswordSalt = %q, want redacted (empty)", got.PasswordSalt)
+	}
+	if got.PasswordType != "" {
+		t.Errorf("GetMaskedUser() for unauthorized viewer: PasswordType = %q, want redacted (empty)", got.PasswordType)
+	}
+	if got.Password != "***" {
+		t.Errorf("GetMaskedUser() for unauthorized viewer: Password = %q, want %q", got.Password, "***")
+	}
+
+	// Control: the record owner/admin must still see their own salt/type —
+	// this fix must not take that away.
+	selfUser := &User{Password: "casdoor", PasswordSalt: "synthetic-test-salt-not-real", PasswordType: "bcrypt"}
+	got, err = GetMaskedUser(selfUser, true)
+	if err != nil {
+		t.Fatalf("GetMaskedUser() unexpected error: %v", err)
+	}
+	if got.PasswordSalt != "synthetic-test-salt-not-real" {
+		t.Errorf("GetMaskedUser() for admin/self: PasswordSalt = %q, want unchanged", got.PasswordSalt)
+	}
+	if got.PasswordType != "bcrypt" {
+		t.Errorf("GetMaskedUser() for admin/self: PasswordType = %q, want unchanged", got.PasswordType)
+	}
+}
+
 func TestGetUserByField(t *testing.T) {
 	InitConfig()
 
