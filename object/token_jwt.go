@@ -223,11 +223,19 @@ func getUserWithoutThirdIdp(user *User) *UserWithoutThirdIdp {
 		UpdatedTime: user.UpdatedTime,
 		DeletedTime: user.DeletedTime,
 
-		Id:                user.Id,
-		Type:              user.Type,
-		Password:          user.Password,
-		PasswordSalt:      user.PasswordSalt,
-		PasswordType:      user.PasswordType,
+		Id:   user.Id,
+		Type: user.Type,
+		// Password, PasswordSalt, PasswordType, TotpSecret, and
+		// RecoveryCodes have no OIDC/OAuth claim mapping and are never
+		// legitimate token content: they are the raw credential hash
+		// material and MFA/recovery seeds for the account. They must
+		// never be embedded in an access token, ID token, or refresh
+		// token, regardless of the scope the client requested (see
+		// TC-71C31586). Every other field below reflects standard
+		// profile/account attributes that existing integrations rely on.
+		Password:          "",
+		PasswordSalt:      "",
+		PasswordType:      "",
 		DisplayName:       user.DisplayName,
 		FirstName:         user.FirstName,
 		LastName:          user.LastName,
@@ -284,10 +292,12 @@ func getUserWithoutThirdIdp(user *User) *UserWithoutThirdIdp {
 		LastSigninIp:   user.LastSigninIp,
 
 		PreferredMfaType: user.PreferredMfaType,
-		RecoveryCodes:    user.RecoveryCodes,
-		TotpSecret:       user.TotpSecret,
-		MfaPhoneEnabled:  user.MfaPhoneEnabled,
-		MfaEmailEnabled:  user.MfaEmailEnabled,
+		// RecoveryCodes and TotpSecret are the live MFA/recovery seeds;
+		// see the comment above Password/PasswordSalt/PasswordType.
+		RecoveryCodes:   nil,
+		TotpSecret:      "",
+		MfaPhoneEnabled: user.MfaPhoneEnabled,
+		MfaEmailEnabled: user.MfaEmailEnabled,
 
 		Ldap:       user.Ldap,
 		Properties: user.Properties,
