@@ -25,18 +25,11 @@ import (
 )
 
 func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponCode string) (*Order, error) {
-	if len(reqProductInfos) == 0 {
-		return nil, fmt.Errorf("order has no products")
+	if err := validateOrderProductInfos(reqProductInfos); err != nil {
+		return nil, err
 	}
 
-	productNames := make([]string, 0, len(reqProductInfos))
-	for _, reqInfo := range reqProductInfos {
-		if reqInfo.Name == "" {
-			return nil, fmt.Errorf("product name cannot be empty")
-		}
-		productNames = append(productNames, reqInfo.Name)
-	}
-
+	productNames := getOrderProductNames(reqProductInfos)
 	products, err := getOrderProducts(owner, productNames)
 	if err != nil {
 		return nil, err
@@ -130,6 +123,30 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 	}
 
 	return order, nil
+}
+
+func validateOrderProductInfos(reqProductInfos []ProductInfo) error {
+	if len(reqProductInfos) == 0 {
+		return fmt.Errorf("order has no products")
+	}
+
+	for _, reqInfo := range reqProductInfos {
+		if reqInfo.Name == "" {
+			return fmt.Errorf("product name cannot be empty")
+		}
+		if reqInfo.Quantity <= 0 {
+			return fmt.Errorf("product quantity must be greater than zero")
+		}
+	}
+	return nil
+}
+
+func getOrderProductNames(reqProductInfos []ProductInfo) []string {
+	productNames := make([]string, 0, len(reqProductInfos))
+	for _, reqInfo := range reqProductInfos {
+		productNames = append(productNames, reqInfo.Name)
+	}
+	return productNames
 }
 
 func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) (payment *Payment, attachInfo map[string]interface{}, err error) {
