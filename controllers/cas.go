@@ -40,6 +40,35 @@ func queryUnescape(service string) string {
 	return s
 }
 
+// casServiceMatchesIssued reports whether service is the exact same URL
+// (scheme, host, and path) as issuedService, the service a CAS ticket was
+// issued for or a target the assertion is being redeemed against. The CAS
+// protocol requires an exact match of the validating service against the
+// issuing service; comparing parsed URL components (rather than doing a
+// substring/prefix comparison) means an attacker-controlled service that
+// merely starts with the registered service string as text -- e.g.
+// "https://good.example.com.attacker.net/steal" against a service registered
+// as "https://good.example.com" -- is correctly rejected as a different
+// host, not accepted as a "match".
+func casServiceMatchesIssued(service, issuedService string) bool {
+	if service == issuedService {
+		return true
+	}
+
+	serviceUrl, err := url.Parse(service)
+	if err != nil {
+		return false
+	}
+	issuedUrl, err := url.Parse(issuedService)
+	if err != nil {
+		return false
+	}
+
+	return serviceUrl.Scheme == issuedUrl.Scheme &&
+		serviceUrl.Host == issuedUrl.Host &&
+		serviceUrl.Path == issuedUrl.Path
+}
+
 func (c *RootController) CasValidate() {
 	ticket := c.Ctx.Input.Query("ticket")
 	service := c.Ctx.Input.Query("service")
@@ -102,7 +131,7 @@ func (c *RootController) CasP3ProxyValidate() {
 	// find the token
 	if ok {
 		// check whether service is the one for which we previously issued token
-		if strings.HasPrefix(service, issuedService) || strings.HasPrefix(queryUnescape(service), issuedService) {
+		if casServiceMatchesIssued(service, issuedService) || casServiceMatchesIssued(queryUnescape(service), issuedService) {
 			serviceResponse.Success = response
 		} else {
 			// service not match
@@ -222,7 +251,7 @@ func (c *RootController) SamlValidate() {
 		return
 	}
 
-	if !strings.HasPrefix(target, service) {
+	if !casServiceMatchesIssued(target, service) {
 		c.ResponseError(fmt.Sprintf(c.T("cas:Service %s and %s do not match"), target, service))
 		return
 	}
