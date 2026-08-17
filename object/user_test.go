@@ -108,6 +108,67 @@ func TestSyncHashes(t *testing.T) {
 	}
 }
 
+// TestGetMaskedUserRedactsCredentialAndTelemetryFieldsForNonPrivilegedCaller
+// covers TC-D3DE0191: an anonymous/non-privileged caller (isAdminOrSelf ==
+// false) must never receive a user's password salt, password hashing
+// algorithm, or creation/login IP history, even though these fields have no
+// corresponding organization AccountItem to gate them. A privileged caller
+// (isAdminOrSelf == true), such as the user viewing their own profile or an
+// admin, must continue to receive them unchanged.
+func TestGetMaskedUserRedactsCredentialAndTelemetryFieldsForNonPrivilegedCaller(t *testing.T) {
+	sensitiveUser := func() *User {
+		return &User{
+			Owner:        "niro-alpha",
+			Name:         "alice",
+			Password:     "casdoor",
+			PasswordSalt: "bc93288768d3b640bb0d",
+			PasswordType: "bcrypt",
+			CreatedIp:    "127.0.0.1",
+			LastSigninIp: "127.0.0.1",
+		}
+	}
+
+	t.Run("non-privileged caller: fields must be redacted", func(t *testing.T) {
+		got, err := GetMaskedUser(sensitiveUser(), false)
+		if err != nil {
+			t.Fatalf("GetMaskedUser() error = %v", err)
+		}
+
+		if got.PasswordSalt != "" {
+			t.Errorf("PasswordSalt leaked to non-privileged caller: %q", got.PasswordSalt)
+		}
+		if got.PasswordType != "" {
+			t.Errorf("PasswordType leaked to non-privileged caller: %q", got.PasswordType)
+		}
+		if got.CreatedIp != "" {
+			t.Errorf("CreatedIp leaked to non-privileged caller: %q", got.CreatedIp)
+		}
+		if got.LastSigninIp != "" {
+			t.Errorf("LastSigninIp leaked to non-privileged caller: %q", got.LastSigninIp)
+		}
+	})
+
+	t.Run("control: privileged (admin-or-self) caller keeps the fields", func(t *testing.T) {
+		got, err := GetMaskedUser(sensitiveUser(), true)
+		if err != nil {
+			t.Fatalf("GetMaskedUser() error = %v", err)
+		}
+
+		if got.PasswordSalt != "bc93288768d3b640bb0d" {
+			t.Errorf("PasswordSalt unexpectedly redacted for privileged caller: %q", got.PasswordSalt)
+		}
+		if got.PasswordType != "bcrypt" {
+			t.Errorf("PasswordType unexpectedly redacted for privileged caller: %q", got.PasswordType)
+		}
+		if got.CreatedIp != "127.0.0.1" {
+			t.Errorf("CreatedIp unexpectedly redacted for privileged caller: %q", got.CreatedIp)
+		}
+		if got.LastSigninIp != "127.0.0.1" {
+			t.Errorf("LastSigninIp unexpectedly redacted for privileged caller: %q", got.LastSigninIp)
+		}
+	})
+}
+
 func TestGetMaskedUsers(t *testing.T) {
 	type args struct {
 		users []*User
