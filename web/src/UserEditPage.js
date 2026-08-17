@@ -57,6 +57,21 @@ import Sider from "antd/es/layout/Sider";
 
 const {Option} = Select;
 
+function getLocalReturnUrl(returnUrl) {
+  let url = null;
+  try {
+    url = new URL(returnUrl, window.location.origin);
+  } catch (_) {
+    return null;
+  }
+
+  if (url.origin !== window.location.origin) {
+    return null;
+  }
+
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 class UserEditPage extends React.Component {
   constructor(props) {
     super(props);
@@ -217,8 +232,13 @@ class UserEditPage extends React.Component {
     const searchParams = new URLSearchParams(this.props.location.search);
     const returnUrl = searchParams.get("returnUrl");
     if (returnUrl !== null) {
+      const localReturnUrl = getLocalReturnUrl(returnUrl);
+      if (localReturnUrl === null) {
+        return;
+      }
+
       this.setState({
-        returnUrl: returnUrl,
+        returnUrl: localReturnUrl,
       });
     }
   }
