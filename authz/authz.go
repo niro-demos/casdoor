@@ -39,7 +39,6 @@ func InitApi() {
 	if true {
 		ruleText := `
 p, built-in, *, *, *, *, *
-p, app, *, *, *, *, *
 p, app-dcr, *, *, /api/login/oauth/*, *, *
 p, app-dcr, *, *, /api/get-oauth-token, *, *
 p, app-dcr, *, *, /api/userinfo, *, *
@@ -171,7 +170,20 @@ func IsAllowed(subOwner string, subName string, method string, urlPath string, o
 	}
 
 	if subOwner == "app" {
-		return true, nil
+		// An application's own clientId/clientSecret (subOwner == "app", see
+		// routers.getUsernameByClientIdSecret) is trusted only for requests
+		// scoped to that application's own organization -- never as a
+		// platform-wide skeleton key across every tenant. Outside that
+		// scope, fall through to the normal RBAC evaluation below (the
+		// explicit public policy rules, or per-application API
+		// permissions) instead of an automatic allow.
+		appOrg, err := object.GetAppOrganization(util.GetId(subOwner, subName))
+		if err != nil {
+			return false, err
+		}
+		if appOrg != "" && appOrg == objOwner {
+			return true, nil
+		}
 	}
 
 	user, err := object.GetUser(util.GetId(subOwner, subName))

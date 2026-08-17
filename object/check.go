@@ -447,7 +447,17 @@ func CheckUserPermission(requestUserId, userId string, strict bool, lang string)
 
 	hasPermission := false
 	if IsAppUser(requestUserId) {
-		hasPermission = true
+		// An application's own client credentials (requestUserId of the
+		// form "app/<name>") are trusted only for users within that
+		// application's own organization -- never for every tenant's
+		// users.
+		appOrg, err := GetAppOrganization(requestUserId)
+		if err != nil {
+			return false, err
+		}
+		if appOrg != "" && appOrg == userOwner {
+			hasPermission = true
+		}
 	} else {
 		requestUser, err := GetUser(requestUserId)
 		if err != nil {

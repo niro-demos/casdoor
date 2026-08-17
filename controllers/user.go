@@ -230,10 +230,15 @@ func (c *ApiController) GetUser() {
 		return
 	}
 
-	requestUserId := c.GetSessionUsername()
-	isApplicationRequest := object.IsAppUser(requestUserId)
-	isAdmin := c.IsAdmin() || isApplicationRequest
-	isAdminOrSelf := c.IsAdminOrSelf(user) || isApplicationRequest
+	// c.IsAdmin()/c.IsAdminOrSelf() already grant an application's own
+	// client credentials admin-equivalent trust when this request targets
+	// that application's own organization (see ApiController.isGlobalAdmin).
+	// Do not separately re-grant that trust for every organization here --
+	// doing so would unmask another tenant's user (e.g. OriginalToken,
+	// OAuth Properties) to any application's credentials regardless of
+	// organization.
+	isAdmin := c.IsAdmin()
+	isAdminOrSelf := c.IsAdminOrSelf(user)
 	user, err = object.GetMaskedUser(user, isAdminOrSelf)
 	if err != nil {
 		c.ResponseError(err.Error())

@@ -109,6 +109,19 @@ func (c *ApiController) RequireSignedInUser() (*object.User, bool) {
 	if object.IsAppUser(userId) {
 		tmpUserId := c.Ctx.Input.Query("userId")
 		if tmpUserId != "" {
+			// An application's own client credentials may only act as a
+			// user within that application's own organization -- never as
+			// an arbitrary user from any tenant.
+			appOrg, err := object.GetAppOrganization(userId)
+			if err != nil {
+				c.ResponseError(err.Error())
+				return nil, false
+			}
+			tmpUserOwner, _, idErr := util.GetOwnerAndNameFromIdWithError(tmpUserId)
+			if appOrg == "" || idErr != nil || tmpUserOwner != appOrg {
+				c.ResponseError(c.T("auth:Unauthorized operation"))
+				return nil, false
+			}
 			userId = tmpUserId
 		}
 	}
@@ -153,7 +166,15 @@ func (c *ApiController) IsOrgAdmin() (bool, bool) {
 	}
 
 	if object.IsAppUser(userId) {
-		return true, true
+		// An application's own client credentials only act as an org admin
+		// for that application's own organization -- never for every
+		// tenant's organization.
+		appOrg, err := object.GetAppOrganization(userId)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return false, false
+		}
+		return appOrg != "" && appOrg == c.getRequestObjOwner(), true
 	}
 
 	user, err := object.GetUser(userId)

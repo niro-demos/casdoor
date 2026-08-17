@@ -73,11 +73,33 @@ func (c *ApiController) IsAdminOrSelf(user2 *object.User) bool {
 	return false
 }
 
+// getRequestObjOwner returns the object owner authz_filter.ApiFilter's
+// getObject() resolved for this request (e.g. the organization a
+// GET .../get-tickets?owner=... call targets). It is the same value
+// authz.IsAllowed compares against a session-authenticated org admin's own
+// organization, reused here so an app-authenticated identity gets no more
+// trust than that.
+func (c *ApiController) getRequestObjOwner() string {
+	if v := c.Ctx.Input.GetData("objOwner"); v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 func (c *ApiController) isGlobalAdmin() (bool, *object.User) {
 	username := c.GetSessionUsername()
 	if object.IsAppUser(username) {
-		// e.g., "app/app-casnode"
-		return true, nil
+		// An application's own client credentials (e.g. "app/app-casnode")
+		// are trusted only for requests scoped to that application's own
+		// organization -- never as a platform-wide global admin across
+		// every tenant.
+		appOrg, err := object.GetAppOrganization(username)
+		if err == nil && appOrg != "" && appOrg == c.getRequestObjOwner() {
+			return true, nil
+		}
+		return false, nil
 	}
 
 	user := c.getCurrentUser()
