@@ -79,7 +79,13 @@ func denyMcpRequest(ctx *context.Context) {
 	req := mcpself.McpRequest{}
 	err := json.Unmarshal(ctx.Input.RequestBody, &req)
 	if err != nil {
+		resp := mcpself.BuildMcpResponse(1, nil, &mcpself.McpError{
+			Code:    -32700,
+			Message: "Parse error",
+			Data:    err.Error(),
+		})
 		ctx.Output.SetStatus(http.StatusBadRequest)
+		_ = ctx.Output.JSON(resp, true, false)
 		return
 	}
 
