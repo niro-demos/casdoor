@@ -138,6 +138,19 @@ func (c *ApiController) GetProvider() {
 		return
 	}
 
+	// Unmasking (withSecret=1) must be scoped to admins of the provider's
+	// own owning organization -- not merely any organization's admin --
+	// otherwise any tenant admin can read another tenant's plaintext
+	// provider secrets by requesting its id. The masked read below stays
+	// open (unchanged), since the sign-in UI relies on it to fetch
+	// non-secret provider config across organizations, including
+	// anonymously.
+	if !isMaskEnabled && provider != nil {
+		if ok := c.requireProviderPermission(provider); !ok {
+			return
+		}
+	}
+
 	c.ResponseOk(object.GetMaskedProvider(provider, isMaskEnabled))
 }
 
