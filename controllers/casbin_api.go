@@ -321,6 +321,12 @@ func (c *ApiController) GetAllObjects() {
 			c.ResponseError(c.T("general:Please login first"))
 			return
 		}
+	} else {
+		hasPermission, err := object.CheckUserPermission(c.GetSessionUsername(), userId, true, c.GetAcceptLanguage())
+		if !hasPermission {
+			c.ResponseError(err.Error())
+			return
+		}
 	}
 
 	objects, err := object.GetAllObjects(userId)
@@ -347,6 +353,12 @@ func (c *ApiController) GetAllActions() {
 			c.ResponseError(c.T("general:Please login first"))
 			return
 		}
+	} else {
+		hasPermission, err := object.CheckUserPermission(c.GetSessionUsername(), userId, true, c.GetAcceptLanguage())
+		if !hasPermission {
+			c.ResponseError(err.Error())
+			return
+		}
 	}
 
 	actions, err := object.GetAllActions(userId)
@@ -371,6 +383,12 @@ func (c *ApiController) GetAllRoles() {
 		userId = c.GetSessionUsername()
 		if userId == "" {
 			c.ResponseError(c.T("general:Please login first"))
+			return
+		}
+	} else {
+		hasPermission, err := object.CheckUserPermission(c.GetSessionUsername(), userId, true, c.GetAcceptLanguage())
+		if !hasPermission {
+			c.ResponseError(err.Error())
 			return
 		}
 	}

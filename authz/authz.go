@@ -126,9 +126,9 @@ p, *, *, GET, /api/get-transaction, *, *
 p, *, *, GET, /api/get-provider, *, *
 p, *, *, GET, /api/get-organization-names, *, *
 p, *, *, GET, /api/get-organizations, *, *
-p, *, *, GET, /api/get-all-objects, *, *
-p, *, *, GET, /api/get-all-actions, *, *
-p, *, *, GET, /api/get-all-roles, *, *
+p, *, !anonymous, GET, /api/get-all-objects, *, *
+p, *, !anonymous, GET, /api/get-all-actions, *, *
+p, *, !anonymous, GET, /api/get-all-roles, *, *
 p, *, *, GET, /api/run-casbin-command, *, *
 p, *, *, POST, /api/refresh-engines, *, *
 p, *, *, GET, /api/get-invitation-info, *, *
