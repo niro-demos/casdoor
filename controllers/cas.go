@@ -17,11 +17,14 @@ package controllers
 import (
 	"encoding/xml"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/beego/beego/v2/core/logs"
 	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
 )
 
 const (
@@ -38,6 +41,48 @@ const (
 func queryUnescape(service string) string {
 	s, _ := url.QueryUnescape(service)
 	return s
+}
+
+// isPgtUrlHostAllowed reports whether every IP address the pgtUrl's host
+// resolves to is a routable public address. It rejects loopback,
+// link-local (including the 169.254.0.0/16 cloud metadata range), and
+// RFC1918 private-range destinations so that a caller-supplied pgtUrl
+// cannot be used to make the server dial an internal host it has no
+// legitimate reason to reach.
+func isPgtUrlHostAllowed(pgtUrlObj *url.URL) bool {
+	hostname := pgtUrlObj.Hostname()
+	if hostname == "" {
+		return false
+	}
+
+	// A literal IP address needs no DNS resolution.
+	if ip := net.ParseIP(hostname); ip != nil {
+		return isRoutablePublicIp(ip)
+	}
+
+	ips, err := net.LookupIP(hostname)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+
+	for _, ip := range ips {
+		if !isRoutablePublicIp(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// isRoutablePublicIp reports whether ip is a globally-routable public
+// address. util.IsIntranetIp already covers private/loopback/link-local
+// (including the 169.254.0.0/16 cloud metadata range) ranges; this adds the
+// remaining non-routable classes (multicast, unspecified) so no
+// non-internet destination slips through.
+func isRoutablePublicIp(ip net.IP) bool {
+	if util.IsIntranetIp(ip.String()) {
+		return false
+	}
+	return !ip.IsMulticast() && !ip.IsInterfaceLocalMulticast() && !ip.IsUnspecified()
 }
 
 func (c *RootController) CasValidate() {
@@ -119,15 +164,23 @@ func (c *RootController) CasP3ProxyValidate() {
 		// that means we are in proxy web flow
 		pgt := object.StoreCasTokenForPgt(serviceResponse.Success, service, userId)
 		pgtiou := serviceResponse.Success.ProxyGrantingTicket
-		// todo: check whether it is https
 		pgtUrlObj, err := url.Parse(pgtUrl)
 		if err != nil {
-			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
+			logs.Warning(fmt.Sprintf("CasP3ProxyValidate: failed to parse pgtUrl %q: %v", pgtUrl, err))
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "invalid proxy callback url", format)
 			return
 		}
 
 		if pgtUrlObj.Scheme != "https" {
 			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "callback is not https", format)
+			return
+		}
+
+		// The pgtUrl host is caller-supplied, so it must not be usable to make
+		// the server dial an internal/loopback/link-local destination (SSRF).
+		if !isPgtUrlHostAllowed(pgtUrlObj) {
+			logs.Warning(fmt.Sprintf("CasP3ProxyValidate: rejected pgtUrl with disallowed host: %s", pgtUrlObj.Host))
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "proxy callback url is not allowed", format)
 			return
 		}
 
@@ -139,14 +192,22 @@ func (c *RootController) CasP3ProxyValidate() {
 
 		request, err := http.NewRequest("GET", pgtUrlObj.String(), nil)
 		if err != nil {
-			c.sendCasAuthenticationResponseErr(InternalError, err.Error(), format)
+			logs.Warning(fmt.Sprintf("CasP3ProxyValidate: failed to build proxy callback request: %v", err))
+			c.sendCasAuthenticationResponseErr(InternalError, "failed to build proxy callback request", format)
 			return
 		}
 
 		resp, err := http.DefaultClient.Do(request)
-		if err != nil || !(resp.StatusCode >= 200 && resp.StatusCode < 400) {
-			// failed to send request
-			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
+		if err != nil {
+			// Never echo the raw dial/connect error back to the caller: it
+			// leaks whether an internal host:port is reachable.
+			logs.Warning(fmt.Sprintf("CasP3ProxyValidate: failed to call proxy callback url: %v", err))
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "failed to reach proxy callback url", format)
+			return
+		}
+		if !(resp.StatusCode >= 200 && resp.StatusCode < 400) {
+			logs.Warning(fmt.Sprintf("CasP3ProxyValidate: proxy callback url returned status %d", resp.StatusCode))
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "proxy callback url returned an unexpected response", format)
 			return
 		}
 	}
