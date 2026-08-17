@@ -51,12 +51,15 @@ func (c *ApiController) GetTransactions() {
 			}
 		} else {
 			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+			sessionOwner, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
 			if userErr != nil {
 				c.ResponseError(userErr.Error())
 				return
 			}
-			transactions, err = object.GetUserTransactions(owner, userName)
+			// Non-admins may only ever list their own transactions: derive
+			// the owner from the session, never from the caller-supplied
+			// query parameter.
+			transactions, err = object.GetUserTransactions(sessionOwner, userName)
 		}
 
 		if err != nil {
@@ -71,11 +74,14 @@ func (c *ApiController) GetTransactions() {
 		// Apply user filter for non-admin users
 		if !c.IsAdmin() {
 			user := c.GetSessionUsername()
-			_, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
+			sessionOwner, userName, userErr := util.GetOwnerAndNameFromIdWithError(user)
 			if userErr != nil {
 				c.ResponseError(userErr.Error())
 				return
 			}
+			// Same rule for the paginated path: ignore the caller-supplied
+			// owner and scope strictly to the session's own owner/user.
+			owner = sessionOwner
 			field = "user"
 			value = userName
 		}
