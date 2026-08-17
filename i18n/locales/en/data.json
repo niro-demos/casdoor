@@ -110,6 +110,7 @@
     "Insufficient balance: new organization balance %v would be below credit limit %v": "Insufficient balance: new organization balance %v would be below credit limit %v",
     "Missing parameter": "Missing parameter",
     "Only admin user can specify user": "Only admin user can specify user",
+    "Only admin user can specify a different owner": "Only admin user can specify a different owner",
     "Please login first": "Please login first",
     "The LDAP: %s does not exist": "The LDAP: %s does not exist",
     "The organization: %s should have one application at least": "The organization: %s should have one application at least",

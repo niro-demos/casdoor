@@ -110,6 +110,7 @@
     "Insufficient balance: new organization balance %v would be below credit limit %v": "Недостатній баланс: новий баланс організації %v буде нижче кредитного ліміту %v",
     "Missing parameter": "Відсутній параметр",
     "Only admin user can specify user": "Лише адміністратор може вказати користувача",
+    "Only admin user can specify a different owner": "Лише адміністратор може вказати іншого власника",
     "Please login first": "Спочатку увійдіть",
     "The LDAP: %s does not exist": "LDAP: %s не існує",
     "The organization: %s should have one application at least": "Організація: %s має мати щонайменше один додаток",

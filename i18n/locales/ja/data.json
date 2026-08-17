@@ -110,6 +110,7 @@
     "Insufficient balance: new organization balance %v would be below credit limit %v": "残高不足：新しい組織残高 %v がクレジット制限 %v を下回ります",
     "Missing parameter": "不足しているパラメーター",
     "Only admin user can specify user": "管理者ユーザーのみがユーザーを指定できます",
+    "Only admin user can specify a different owner": "管理者ユーザーのみが別の所有者を指定できます",
     "Please login first": "最初にログインしてください",
     "The LDAP: %s does not exist": "LDAP：%s は存在しません",
     "The organization: %s should have one application at least": "組織「%s」は少なくとも1つのアプリケーションを持っている必要があります",
