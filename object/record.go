@@ -185,6 +185,20 @@ func GetRecords() ([]*Record, error) {
 	return records, nil
 }
 
+func GetRecordsForOrganization(organization string) ([]*Record, error) {
+	if organization == "" {
+		return GetRecords()
+	}
+
+	records := []*Record{}
+	err := ormer.Engine.Desc("id").Find(&records, &Record{Organization: organization})
+	if err != nil {
+		return records, err
+	}
+
+	return records, nil
+}
+
 func GetPaginationRecords(offset, limit int, field, value, sortField, sortOrder string, filterRecord *Record) ([]*Record, error) {
 	records := []*Record{}
 
