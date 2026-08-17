@@ -249,6 +249,26 @@ func IsScopeValid(scope string, application *Application) bool {
 	return ok
 }
 
+func validateOAuthClientSecret(application *Application, grantType string, clientSecret string) *TokenError {
+	if application == nil || application.ClientSecret == "" {
+		return nil
+	}
+
+	switch grantType {
+	case "password", "refresh_token":
+	default:
+		return nil
+	}
+
+	if application.ClientSecret != clientSecret {
+		return &TokenError{
+			Error:            InvalidClient,
+			ErrorDescription: "client_secret is invalid",
+		}
+	}
+	return nil
+}
+
 func ExpireTokenByAccessToken(accessToken string) (bool, *Application, *Token, error) {
 	token, err := GetTokenByAccessToken(accessToken)
 	if err != nil {
@@ -413,11 +433,8 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		}
 	}
 
-	if clientSecret != "" && application.ClientSecret != clientSecret {
-		return &TokenError{
-			Error:            InvalidClient,
-			ErrorDescription: "client_secret is invalid",
-		}, nil
+	if tokenError := validateOAuthClientSecret(application, grantType, clientSecret); tokenError != nil {
+		return tokenError, nil
 	}
 
 	// check whether the refresh token is valid, and has not expired.
