@@ -21,12 +21,21 @@ import (
 )
 
 func (c *RootController) HandleScim() {
-	_, ok := c.RequireAdmin()
+	owner, ok := c.RequireAdmin()
 	if !ok {
 		return
 	}
 
 	path := c.Ctx.Request.URL.Path
 	c.Ctx.Request.URL.Path = strings.TrimPrefix(path, "/scim")
+
+	// Thread the caller's organization scope (owner == "" for the built-in
+	// global admin, the admin's own organization otherwise) through to the
+	// SCIM resource handlers, so they can confine tenant admins to their own
+	// organization's user/group records instead of treating every
+	// authenticated admin as having global scope.
+	ctx := scim.WithCallerOwner(c.Ctx.Request.Context(), owner)
+	c.Ctx.Request = c.Ctx.Request.WithContext(ctx)
+
 	scim.Server.ServeHTTP(c.Ctx.ResponseWriter, c.Ctx.Request)
 }
