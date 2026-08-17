@@ -68,6 +68,9 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 			}
 		} else {
 			productPrice = product.Price
+			if productInfo.Quantity <= 0 {
+				return nil, fmt.Errorf("the quantity for product: %s should be greater than zero", product.Name)
+			}
 		}
 		productInfos = append(productInfos, ProductInfo{
 			Owner:       owner,
@@ -135,6 +138,12 @@ func PlaceOrder(owner string, reqProductInfos []ProductInfo, user *User, couponC
 func PayOrder(providerName, host, paymentEnv string, order *Order, lang string) (payment *Payment, attachInfo map[string]interface{}, err error) {
 	if order.State != "Created" {
 		return nil, nil, fmt.Errorf("cannot pay for order: %s, current state is %s", order.GetId(), order.State)
+	}
+	if order.Price < 0 {
+		// Defense in depth: a purchase must always debit the buyer, never
+		// credit them. This protects against any code path (not just
+		// PlaceOrder) that could produce a negative-price order.
+		return nil, nil, fmt.Errorf("cannot pay for order: %s, order price is negative: %v", order.GetId(), order.Price)
 	}
 	productNames := order.Products
 	products, err := getOrderProducts(order.Owner, productNames)
