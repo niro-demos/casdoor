@@ -268,11 +268,19 @@ func (c *ApiController) HandleLoggedIn(application *object.Application, user *ob
 		service := c.Ctx.Input.Query("service")
 		resp = wrapErrorResponse(nil)
 		if service != "" {
-			st, err := object.GenerateCasToken(userId, service)
-			if err != nil {
+			// Ticket issuance must honor the same redirect-URI allow list as
+			// the pre-login check (GetApplicationLogin's "cas" branch), or an
+			// attacker can drive a victim through a normal CAS login with an
+			// arbitrary, unregistered "service" and receive a valid ticket.
+			if err := object.CheckCasLogin(application, c.GetAcceptLanguage(), service); err != nil {
 				resp = wrapErrorResponse(err)
 			} else {
-				resp.Data = st
+				st, err := object.GenerateCasToken(userId, service)
+				if err != nil {
+					resp = wrapErrorResponse(err)
+				} else {
+					resp.Data = st
+				}
 			}
 		}
 
