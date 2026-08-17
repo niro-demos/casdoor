@@ -48,12 +48,18 @@ type LdapSyncResp struct {
 func (c *ApiController) GetLdapUsers() {
 	id := c.Ctx.Input.Query("id")
 
-	_, ldapId, err := util.GetOwnerAndNameFromIdWithError(id)
+	owner, ldapId, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
-	ldapServer, err := object.GetLdap(ldapId)
+
+	var ldapServer *object.Ldap
+	if c.IsGlobalAdmin() {
+		ldapServer, err = object.GetLdap(ldapId)
+	} else {
+		ldapServer, err = object.GetLdapByOwner(owner, ldapId)
+	}
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -134,16 +140,27 @@ func (c *ApiController) GetLdap() {
 		return
 	}
 
-	_, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
-	ldap, err := object.GetLdap(name)
+
+	var ldap *object.Ldap
+	if c.IsGlobalAdmin() {
+		ldap, err = object.GetLdap(name)
+	} else {
+		ldap, err = object.GetLdapByOwner(owner, name)
+	}
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
+	if ldap == nil {
+		c.ResponseError(c.T("general:The object does not exist"))
+		return
+	}
+
 	c.ResponseOk(object.GetMaskedLdap(ldap))
 }
 
@@ -205,7 +222,14 @@ func (c *ApiController) UpdateLdap() {
 		return
 	}
 
-	prevLdap, err := object.GetLdap(ldap.Id)
+	isGlobalAdmin := c.IsGlobalAdmin()
+
+	var prevLdap *object.Ldap
+	if isGlobalAdmin {
+		prevLdap, err = object.GetLdap(ldap.Id)
+	} else {
+		prevLdap, err = object.GetLdapByOwner(ldap.Owner, ldap.Id)
+	}
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -215,7 +239,7 @@ func (c *ApiController) UpdateLdap() {
 		return
 	}
 
-	affected, err := object.UpdateLdap(&ldap)
+	affected, err := object.UpdateLdap(&ldap, isGlobalAdmin)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
@@ -247,6 +271,21 @@ func (c *ApiController) DeleteLdap() {
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &ldap)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+
+	var prevLdap *object.Ldap
+	if c.IsGlobalAdmin() {
+		prevLdap, err = object.GetLdap(ldap.Id)
+	} else {
+		prevLdap, err = object.GetLdapByOwner(ldap.Owner, ldap.Id)
+	}
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	if prevLdap == nil {
+		c.ResponseError(c.T("general:The object does not exist"))
 		return
 	}
 
