@@ -24,6 +24,19 @@ import (
 	"github.com/casdoor/casdoor/util"
 )
 
+// canViewAllProductStates reports whether the current session may see every
+// product of the given owner organization regardless of its state (e.g.
+// Draft). Global admins and members of the owner organization can; everyone
+// else (including anonymous callers) may only see Published products.
+func (c *ApiController) canViewAllProductStates(owner string) bool {
+	if c.IsGlobalAdmin() {
+		return true
+	}
+
+	user := c.getCurrentUser()
+	return user != nil && user.Owner == owner
+}
+
 // GetProducts
 // @Title GetProducts
 // @Tag Product API
@@ -40,11 +53,27 @@ func (c *ApiController) GetProducts() {
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
 
+	// Anonymous visitors and callers who are neither a global admin nor a
+	// member of the owner organization must only ever see Published
+	// products. This is enforced here rather than trusted from the client,
+	// and applies regardless of pagination: it overrides any client-supplied
+	// field/value filter so the guarantee can't be bypassed by a caller who
+	// simply omits it (or omits pagination altogether).
+	restricted := !c.canViewAllProductStates(owner)
+	if restricted {
+		field = "state"
+		value = "Published"
+	}
+
 	if limit == "" || page == "" {
 		products, err := object.GetProducts(owner)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
+		}
+
+		if restricted {
+			products = filterPublishedProducts(products)
 		}
 
 		c.ResponseOk(products)
@@ -65,6 +94,20 @@ func (c *ApiController) GetProducts() {
 
 		c.ResponseOk(products, paginator.Nums())
 	}
+}
+
+// filterPublishedProducts returns only the products in the Published state,
+// preserving order. Used to enforce the invariant that unpublished products
+// are never visible to anonymous visitors or non-members of the owner
+// organization.
+func filterPublishedProducts(products []*object.Product) []*object.Product {
+	published := make([]*object.Product, 0, len(products))
+	for _, product := range products {
+		if product.State == "Published" {
+			published = append(published, product)
+		}
+	}
+	return published
 }
 
 // GetProduct
