@@ -48,16 +48,30 @@ func (c *ApiController) Unlink() {
 	providerType := form.ProviderType
 	providerName := form.ProviderName
 
-	// the user will be unlinked from the provider
+	// The user will be unlinked from the provider. The authorization
+	// decision below -- and the account actually mutated further down
+	// (object.ClearUserOAuthProperties / object.LinkUserAccount) -- must
+	// both be keyed on the same fields. Those mutations key on
+	// unlinkedUser.Owner/Name, not on unlinkedUser.Id, so the identity check
+	// must compare Owner/Name too: comparing Id alone let a caller supply
+	// their own real id (satisfying the check) while pointing owner/name at
+	// a different account (redirecting the mutation).
 	unlinkedUser := form.User
 
-	if user.Id != unlinkedUser.Id && !user.IsGlobalAdmin() {
-		// if the user is not the same as the one we are unlinking, we need to make sure the user is the global admin.
-		c.ResponseError(c.T("link:You are not the global admin, you can't unlink other users"))
-		return
-	}
+	if !user.IsGlobalAdmin() {
+		if user.Owner != unlinkedUser.Owner || user.Name != unlinkedUser.Name {
+			// if the user is not the same as the one we are unlinking, we need to make sure the user is the global admin.
+			c.ResponseError(c.T("link:You are not the global admin, you can't unlink other users"))
+			return
+		}
 
-	if user.Id == unlinkedUser.Id && !user.IsGlobalAdmin() {
+		// Once we've confirmed the request targets the caller's own account,
+		// stop trusting the client-supplied unlinkedUser altogether and
+		// operate on the session-loaded, trusted `user` instead. This keeps
+		// every other request-controlled field (id, properties, ...) from
+		// being able to influence which account gets mutated.
+		unlinkedUser = *user
+
 		// if the user is unlinking themselves, should check the provider can be unlinked, if not, we should return an error.
 		application, err := object.GetApplicationByUser(user)
 		if err != nil {
