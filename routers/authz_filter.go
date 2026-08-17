@@ -351,6 +351,14 @@ func ApiFilter(ctx *context.Context) {
 		}
 	}
 
+	// Stash the object owner this request targets so controller-level
+	// helpers (e.g. ApiController.isGlobalAdmin, IsOrgAdmin) can scope an
+	// app-authenticated identity's trust to its own organization instead of
+	// treating it as a platform-wide admin. This mirrors the same objOwner
+	// already used by authz.IsAllowed for the equivalent decision on
+	// session-authenticated org admins.
+	ctx.Input.SetData("objOwner", objOwner)
+
 	if strings.HasPrefix(urlPath, "/api/notify-payment") {
 		urlPath = "/api/notify-payment"
 	}

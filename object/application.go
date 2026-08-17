@@ -392,6 +392,40 @@ func GetApplication(id string) (*Application, error) {
 	return getApplication(owner, name)
 }
 
+// GetAppOrganization returns the organization owned by the application behind
+// an app-authenticated identity, e.g. "app/app-niro-alpha" or
+// "app-dcr/app-niro-alpha" (see routers.getUsernameByClientIdSecret). It
+// returns "" when userId does not identify an application, or the
+// application can no longer be found.
+//
+// Callers must treat "" as "no organization scope" -- never as "any
+// organization" -- so that an application whose identity can't be resolved
+// is not accidentally trusted.
+func GetAppOrganization(userId string) (string, error) {
+	if !IsAppUser(userId) {
+		return "", nil
+	}
+
+	_, name, err := util.GetOwnerAndNameFromIdWithError(userId)
+	if err != nil {
+		return "", err
+	}
+
+	// Applications are conventionally stored under the "admin" owner (see
+	// initBuiltInApplication, GetApplicationByUserId), not under the
+	// synthetic "app"/"app-dcr" subject owner used for app-authenticated
+	// requests.
+	application, err := getApplication("admin", name)
+	if err != nil {
+		return "", err
+	}
+	if application == nil {
+		return "", nil
+	}
+
+	return application.Organization, nil
+}
+
 func UpdateApplication(id string, application *Application, isGlobalAdmin bool, lang string, columns []string) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
