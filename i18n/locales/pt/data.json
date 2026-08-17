@@ -110,6 +110,7 @@
     "Insufficient balance: new organization balance %v would be below credit limit %v": "Saldo insuficiente: o novo saldo da organização %v estaria abaixo do limite de crédito %v",
     "Missing parameter": "Parâmetro ausente",
     "Only admin user can specify user": "Apenas um administrador pode especificar um usuário",
+    "Only admin user can specify a different owner": "Apenas um administrador pode especificar um proprietário diferente",
     "Please login first": "Por favor, faça login primeiro",
     "The LDAP: %s does not exist": "O LDAP: %s não existe",
     "The organization: %s should have one application at least": "A organização: %s deve ter pelo menos um aplicativo",
