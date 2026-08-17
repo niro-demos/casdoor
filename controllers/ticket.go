@@ -211,6 +211,14 @@ func (c *ApiController) AddTicket() {
 		return
 	}
 	ticket.User = user.GetId()
+	isAdmin := c.IsAdmin()
+	for _, message := range ticket.Messages {
+		if message == nil {
+			continue
+		}
+		message.Author = user.GetId()
+		message.IsAdmin = isAdmin
+	}
 
 	c.Data["json"] = wrapActionResponse(object.AddTicket(&ticket))
 	c.ServeJSON()
