@@ -358,6 +358,13 @@ func GetSamlResponse(application *Application, user *User, samlRequest string, h
 		authnRequest.AssertionConsumerServiceURL = application.SamlReplyUrl
 	} else if authnRequest.AssertionConsumerServiceURL == "" {
 		return "", "", "", fmt.Errorf("err: SAML request don't has attribute 'AssertionConsumerServiceURL' in <samlp:AuthnRequest>")
+	} else if isValid := application.IsRedirectUriValid(authnRequest.AssertionConsumerServiceURL); !isValid {
+		// Never trust a request-supplied AssertionConsumerServiceURL that
+		// isn't registered for this application: it becomes both the signed
+		// response's Destination and the assertion's SubjectConfirmationData
+		// Recipient, so accepting an arbitrary value here would let an
+		// attacker redirect a victim's signed SAML assertion anywhere.
+		return "", "", "", fmt.Errorf("err: AssertionConsumerServiceURL: %s doesn't exist in the allowed Redirect URI list", authnRequest.AssertionConsumerServiceURL)
 	}
 	if authnRequest.ProtocolBinding == "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" {
 		method = "POST"
