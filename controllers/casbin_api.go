@@ -314,13 +314,14 @@ func (c *ApiController) BatchEnforce() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-objects [get]
 func (c *ApiController) GetAllObjects() {
+	sessionUserId, ok := c.RequireSignedIn()
+	if !ok {
+		return
+	}
+
 	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	if userId == "" || !c.IsAdmin() {
+		userId = sessionUserId
 	}
 
 	objects, err := object.GetAllObjects(userId)
@@ -340,13 +341,14 @@ func (c *ApiController) GetAllObjects() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-actions [get]
 func (c *ApiController) GetAllActions() {
+	sessionUserId, ok := c.RequireSignedIn()
+	if !ok {
+		return
+	}
+
 	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	if userId == "" || !c.IsAdmin() {
+		userId = sessionUserId
 	}
 
 	actions, err := object.GetAllActions(userId)
