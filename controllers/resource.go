@@ -60,6 +60,17 @@ func (c *ApiController) GetResources() {
 
 	if isOrgAdmin {
 		user = ""
+	} else {
+		// A non-admin caller must never see another organization's
+		// resources: force the query to their own org regardless of any
+		// client-supplied owner (including an empty owner, which
+		// object.GetResources treats as "no filter").
+		requestOwner, _, err := util.GetOwnerAndNameFromIdWithError(c.GetSessionUsername())
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		owner = requestOwner
 	}
 
 	if sortField == "Direct" {
