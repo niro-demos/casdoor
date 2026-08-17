@@ -49,6 +49,10 @@ type ObjectWithOrg struct {
 	Organization string `json:"organization"`
 }
 
+type LdapMutationObject struct {
+	Id string `json:"id"`
+}
+
 // ownerNameFromForm parses form or multipart body for authorization checks when the
 // request is not JSON (e.g. MFA APIs use FormData). RequestBodyFilter caches the raw
 // body but leaves Request.Body restorable for ParseForm/ParseMultipartForm.
@@ -205,6 +209,25 @@ func getObject(ctx *context.Context) (string, string, error) {
 		body := ctx.Input.RequestBody
 		if len(body) == 0 {
 			return ctx.Request.Form.Get("owner"), ctx.Request.Form.Get("name"), nil
+		}
+
+		if path == "/api/update-ldap" || path == "/api/delete-ldap" {
+			var ldapObj LdapMutationObject
+			if err := json.Unmarshal(body, &ldapObj); err != nil {
+				o, n := ownerNameFromForm(ctx)
+				return o, n, nil
+			}
+			if ldapObj.Id == "" {
+				return "", "", fmt.Errorf("missing LDAP id")
+			}
+			ldap, err := object.GetLdap(ldapObj.Id)
+			if err != nil {
+				return "", "", err
+			}
+			if ldap == nil {
+				return "", "", fmt.Errorf("LDAP does not exist")
+			}
+			return ldap.Owner, ldap.Id, nil
 		}
 
 		var obj Object

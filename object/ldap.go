@@ -152,8 +152,11 @@ func UpdateLdap(ldap *Ldap) (bool, error) {
 	if ldap.Password == "***" {
 		ldap.Password = l.Password
 	}
+	if ldap.Owner != l.Owner {
+		return false, nil
+	}
 
-	affected, err := ormer.Engine.ID(ldap.Id).Cols("owner", "server_name", "host",
+	affected, err := ormer.Engine.ID(ldap.Id).Where("owner = ?", ldap.Owner).Cols("server_name", "host",
 		"port", "enable_ssl", "username", "password", "base_dn", "filter", "filter_fields", "auto_sync", "default_group", "default_groups", "password_type", "allow_self_signed_cert", "custom_attributes", "enable_groups").Update(ldap)
 	if err != nil {
 		return false, nil
@@ -163,7 +166,7 @@ func UpdateLdap(ldap *Ldap) (bool, error) {
 }
 
 func DeleteLdap(ldap *Ldap) (bool, error) {
-	affected, err := ormer.Engine.ID(ldap.Id).Delete(&Ldap{})
+	affected, err := ormer.Engine.ID(ldap.Id).Where("owner = ?", ldap.Owner).Delete(&Ldap{})
 	if err != nil {
 		return false, err
 	}

@@ -214,6 +214,10 @@ func (c *ApiController) UpdateLdap() {
 		c.ResponseError(c.T("general:The object does not exist"))
 		return
 	}
+	if ldap.Owner != prevLdap.Owner {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
 
 	affected, err := object.UpdateLdap(&ldap)
 	if err != nil {
@@ -245,8 +249,22 @@ func (c *ApiController) UpdateLdap() {
 func (c *ApiController) DeleteLdap() {
 	var ldap object.Ldap
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &ldap)
+	if err != nil || util.IsStringsEmpty(ldap.Id, ldap.Owner) {
+		c.ResponseError(c.T("general:Missing parameter"))
+		return
+	}
+
+	prevLdap, err := object.GetLdap(ldap.Id)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+	if prevLdap == nil {
+		c.ResponseError(c.T("general:The object does not exist"))
+		return
+	}
+	if ldap.Owner != prevLdap.Owner {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return
 	}
 
