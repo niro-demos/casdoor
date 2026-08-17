@@ -146,6 +146,25 @@ func (c *ApiController) RequireAdmin() (string, bool) {
 	return user.Owner, true
 }
 
+// RequireGlobalAdmin requires the signed-in user to be the platform's built-in
+// global administrator, rejecting org-scoped tenant admins (user.IsAdmin==true
+// within their own org only). Use this instead of RequireAdmin for endpoints
+// that expose platform-wide, unscoped data (e.g. cross-tenant metrics) where
+// RequireAdmin's org-admin allowance would leak other tenants' data.
+func (c *ApiController) RequireGlobalAdmin() (*object.User, bool) {
+	user, ok := c.RequireSignedInUser()
+	if !ok {
+		return nil, false
+	}
+
+	if !user.IsGlobalAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return nil, false
+	}
+
+	return user, true
+}
+
 func (c *ApiController) IsOrgAdmin() (bool, bool) {
 	userId, ok := c.RequireSignedIn()
 	if !ok {
