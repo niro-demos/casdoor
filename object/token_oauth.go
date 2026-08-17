@@ -85,6 +85,9 @@ func GetOAuthToken(grantType string, clientId string, clientSecret string, code 
 	case "authorization_code": // Authorization Code Grant
 		token, tokenError, err = GetAuthorizationCodeToken(application, clientSecret, code, verifier, resource)
 	case "password": // Resource Owner Password Credentials Grant
+		if tokenError = validateOAuthClientSecret(application, grantType, clientSecret); tokenError != nil {
+			break
+		}
 		token, tokenError, err = GetPasswordToken(application, username, password, scope, host)
 	case "client_credentials": // Client Credentials Grant
 		token, tokenError, err = GetClientCredentialsToken(application, clientSecret, scope, host)

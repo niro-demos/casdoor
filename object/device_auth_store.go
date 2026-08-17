@@ -104,6 +104,104 @@ func (s *memoryDeviceAuthStore) Delete(key any)                    { s.m.Delete(
 func (s *memoryDeviceAuthStore) LoadAndDelete(key any) (any, bool) { return s.m.LoadAndDelete(key) }
 func (s *memoryDeviceAuthStore) Range(f func(key, value any) bool) { s.m.Range(f) }
 
+// IsTokenIssuedToClient reports whether token metadata belongs to the authenticated OAuth client.
+func IsTokenIssuedToClient(application *Application, token *Token) bool {
+	return isTokenIssuedToClient(application, token)
+}
+
+func isTokenIssuedToClient(application *Application, token *Token) bool {
+	if application == nil || token == nil {
+		return false
+	}
+	return application.Owner == token.Owner && application.Name == token.Application
+}
+
+// ClaimDeviceAuthForTokenIssue atomically claims an approved device code before minting a token.
+func ClaimDeviceAuthForTokenIssue(store deviceAuthStore, deviceCode string, clientId string, now time.Time) (DeviceAuthCache, *TokenError) {
+	return claimDeviceAuthForTokenIssue(store, deviceCode, clientId, now)
+}
+
+func claimDeviceAuthForTokenIssue(store deviceAuthStore, deviceCode string, clientId string, now time.Time) (DeviceAuthCache, *TokenError) {
+	deviceAuthCache, ok := store.Load(deviceCode)
+	if !ok {
+		return DeviceAuthCache{}, &TokenError{
+			Error:            "expired_token",
+			ErrorDescription: "token is expired",
+		}
+	}
+
+	deviceAuthCacheCast := deviceAuthCache.(DeviceAuthCache)
+	expiresIn := deviceAuthCacheCast.ExpiresIn
+	if expiresIn == 0 {
+		expiresIn = DeviceAuthExpiresIn
+	}
+	if deviceAuthCacheCast.RequestAt.Add(time.Second * time.Duration(expiresIn)).Before(now) {
+		store.Delete(deviceCode)
+		return DeviceAuthCache{}, &TokenError{
+			Error:            "expired_token",
+			ErrorDescription: "token is expired",
+		}
+	}
+
+	if deviceAuthCacheCast.Status == DeviceAuthStatusDenied {
+		return DeviceAuthCache{}, &TokenError{
+			Error:            "access_denied",
+			ErrorDescription: "device login was denied",
+		}
+	}
+
+	if deviceAuthCacheCast.Status == DeviceAuthStatusTokenIssued {
+		return DeviceAuthCache{}, &TokenError{
+			Error:            "access_denied",
+			ErrorDescription: "device_code has already been used",
+		}
+	}
+
+	if !deviceAuthCacheCast.UserSignIn {
+		return DeviceAuthCache{}, &TokenError{
+			Error:            "authorization_pending",
+			ErrorDescription: "authorization pending",
+		}
+	}
+
+	if deviceAuthCacheCast.ClientId != "" && deviceAuthCacheCast.ClientId != clientId {
+		return DeviceAuthCache{}, &TokenError{
+			Error:            InvalidClient,
+			ErrorDescription: "client_id does not match the device authorization request",
+		}
+	}
+
+	claimedAuthCache, ok := store.LoadAndDelete(deviceCode)
+	if !ok {
+		return DeviceAuthCache{}, &TokenError{
+			Error:            "access_denied",
+			ErrorDescription: "device_code has already been used",
+		}
+	}
+
+	claimedAuthCacheCast := claimedAuthCache.(DeviceAuthCache)
+	if claimedAuthCacheCast.Status != DeviceAuthStatusApproved || !claimedAuthCacheCast.UserSignIn {
+		store.Store(deviceCode, claimedAuthCacheCast)
+		return DeviceAuthCache{}, &TokenError{
+			Error:            "authorization_pending",
+			ErrorDescription: "authorization pending",
+		}
+	}
+	if claimedAuthCacheCast.ClientId != "" && claimedAuthCacheCast.ClientId != clientId {
+		store.Store(deviceCode, claimedAuthCacheCast)
+		return DeviceAuthCache{}, &TokenError{
+			Error:            InvalidClient,
+			ErrorDescription: "client_id does not match the device authorization request",
+		}
+	}
+
+	issuedAuthCache := claimedAuthCacheCast
+	issuedAuthCache.Status = DeviceAuthStatusTokenIssued
+	store.Store(deviceCode, issuedAuthCache)
+
+	return claimedAuthCacheCast, nil
+}
+
 // ── Redis implementation ─────────────────────────────────────────────────────
 
 type redisDeviceAuthStore struct {
