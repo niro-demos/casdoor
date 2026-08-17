@@ -268,11 +268,16 @@ func (c *ApiController) HandleLoggedIn(application *object.Application, user *ob
 		service := c.Ctx.Input.Query("service")
 		resp = wrapErrorResponse(nil)
 		if service != "" {
-			st, err := object.GenerateCasToken(userId, service)
+			err := object.CheckCasLogin(application, c.GetAcceptLanguage(), service)
 			if err != nil {
 				resp = wrapErrorResponse(err)
 			} else {
-				resp.Data = st
+				st, err := object.GenerateCasToken(userId, service)
+				if err != nil {
+					resp = wrapErrorResponse(err)
+				} else {
+					resp.Data = st
+				}
 			}
 		}
 
