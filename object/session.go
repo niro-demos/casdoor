@@ -205,6 +205,27 @@ func DeleteAllUserSessions(owner string, name string) (bool, error) {
 	return affected != 0, nil
 }
 
+func RevokeUserAuthenticationState(owner string, name string) error {
+	_, err := ExpireTokenByUser(owner, name)
+	if err != nil {
+		return err
+	}
+
+	sessions, err := GetUserSessions(owner, name)
+	if err != nil {
+		return err
+	}
+
+	var sessionIds []string
+	for _, session := range sessions {
+		sessionIds = append(sessionIds, session.SessionId...)
+	}
+	DeleteBeegoSession(sessionIds)
+
+	_, err = DeleteAllUserSessions(owner, name)
+	return err
+}
+
 func DeleteSessionId(id string, sessionId string) (bool, error) {
 	session, err := GetSingleSession(id)
 	if err != nil {
