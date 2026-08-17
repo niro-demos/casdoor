@@ -163,6 +163,7 @@
     "Application %s not found": "L'application %s n'a pas été trouvée"
   },
   "saml_sp": {
+    "provider %s does not exist": "provider %s does not exist",
     "provider %s's category is not SAML": "La catégorie du fournisseur %s n'est pas SAML"
   },
   "service": {
