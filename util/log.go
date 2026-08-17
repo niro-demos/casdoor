@@ -22,6 +22,8 @@ import (
 
 	"github.com/beego/beego/v2/core/logs"
 	"github.com/beego/beego/v2/server/web/context"
+
+	"github.com/casdoor/casdoor/conf"
 )
 
 func getIpInfo(clientIp string) string {
@@ -37,8 +39,60 @@ func getIpInfo(clientIp string) string {
 	return strings.Trim(first, "[]")
 }
 
+// isTrustedProxy reports whether remoteAddr -- the direct TCP peer of the
+// request, as seen by this process -- belongs to a reverse proxy that this
+// deployment has explicitly opted to trust via the "trustedProxies" config
+// item (a comma-separated list of IPs and/or CIDR ranges, e.g.
+// "10.0.0.9,172.16.0.0/12"). Only a request whose direct peer is a trusted
+// proxy may have its client IP determined by a client-supplied header
+// (X-Forwarded-For); for anyone else that header is fully attacker
+// controlled and must be ignored.
+func isTrustedProxy(remoteAddr string) bool {
+	trusted := conf.GetConfigString("trustedProxies")
+	if trusted == "" {
+		return false
+	}
+
+	host := remoteAddr
+	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		host = h
+	}
+	peerIp := net.ParseIP(strings.Trim(host, "[]"))
+	if peerIp == nil {
+		return false
+	}
+
+	for _, entry := range strings.Split(trusted, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		if strings.Contains(entry, "/") {
+			if _, cidr, err := net.ParseCIDR(entry); err == nil && cidr.Contains(peerIp) {
+				return true
+			}
+			continue
+		}
+
+		if entryIp := net.ParseIP(entry); entryIp != nil && entryIp.Equal(peerIp) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func GetClientIpFromRequest(req *http.Request) string {
-	clientIp := req.Header.Get("x-forwarded-for")
+	var clientIp string
+	// Only honor a client-supplied X-Forwarded-For header when the request's
+	// direct peer is a configured, trusted reverse proxy. Otherwise any
+	// unauthenticated caller could set this header to an arbitrary value and
+	// impersonate any IP address (e.g. to defeat an IP-based allowlist).
+	if isTrustedProxy(req.RemoteAddr) {
+		clientIp = req.Header.Get("x-forwarded-for")
+	}
+
 	if clientIp == "" {
 		ipPort := strings.Split(req.RemoteAddr, ":")
 		if len(ipPort) >= 1 && len(ipPort) <= 2 {
