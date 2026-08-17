@@ -229,6 +229,39 @@ func (c *ApiController) UploadResource() {
 	createdTime := c.Ctx.Input.Query("createdTime")
 	description := c.Ctx.Input.Query("description")
 
+	// The caller must be signed in, and — unless it is a trusted app account
+	// (Casdoor SDK via client ID & secret, which is already fully trusted
+	// elsewhere in this codebase, e.g. IsOrgAdmin(), RequireSignedInUser()) —
+	// must either administer the requested owner or be uploading as itself.
+	// Without this, `owner`/`user` are caller-supplied and unchecked, letting
+	// any signed-in (or, before the GetProviderFromContext fix, even
+	// unauthenticated) caller create Resource rows under an arbitrary
+	// organization, owner, and username of their choosing.
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return
+	}
+
+	if !object.IsAppUser(userId) {
+		operator, err := object.GetUser(userId)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if operator == nil {
+			c.ClearUserSession()
+			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), userId))
+			return
+		}
+
+		isOwnerAdmin := operator.IsGlobalAdmin() || (operator.IsAdmin && operator.Owner == owner)
+		isSelf := operator.Owner == owner && operator.Name == username
+		if !isOwnerAdmin && !isSelf {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	}
+
 	file, header, err := c.GetFile("file")
 	if err != nil {
 		c.ResponseError(err.Error())
