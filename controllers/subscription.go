@@ -111,6 +111,19 @@ func (c *ApiController) GetSubscription() {
 		return
 	}
 
+	if !c.IsAdmin() {
+		sessionUser := c.GetSessionUsername()
+		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if subscription != nil && (subscription.Owner != sessionUserOwner || subscription.User != sessionUserName) {
+			c.ResponseError("Forbidden")
+			return
+		}
+	}
+
 	c.ResponseOk(subscription)
 }
 
