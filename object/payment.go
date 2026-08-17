@@ -15,6 +15,7 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/beego/beego/v2/core/logs"
@@ -211,7 +212,13 @@ func DeletePayment(payment *Payment) (bool, error) {
 	return affected != 0, nil
 }
 
-func notifyPayment(body []byte, owner string, paymentName string) (*Payment, *pp.NotifyResult, error) {
+// ErrNotifyForbidden is returned by notifyPayment when the caller is not
+// authorized to report a payment's status. It is treated as a rejection, not
+// a payment/order state transition (e.g. NotifyPayment must not flip a
+// payment to "Error" just because an unauthorized caller was refused).
+var ErrNotifyForbidden = errors.New("you are not allowed to notify this payment")
+
+func notifyPayment(body []byte, owner string, paymentName string, sessionUser string) (*Payment, *pp.NotifyResult, error) {
 	payment, err := getPayment(owner, paymentName)
 	if err != nil {
 		return nil, nil, err
@@ -228,6 +235,18 @@ func notifyPayment(body []byte, owner string, paymentName string) (*Payment, *pp
 	pProvider, err := GetPaymentProvider(provider)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// The Dummy provider has no authoritative external source to verify a
+	// payment claim against: unlike Alipay/PayPal/etc, whose Notify()
+	// re-queries the gateway's own API with server-held credentials, the
+	// Dummy provider's Notify() unconditionally reports "Paid" for whatever
+	// it is called with. Since /api/notify-payment is a public, unauthenticated
+	// route (it must be, for real gateway webhooks), that combination lets any
+	// outside caller force someone else's order to "Paid". Require the caller
+	// to be authenticated as the payment's own buyer before trusting it.
+	if provider.Type == "Dummy" && sessionUser != util.GetId(payment.Owner, payment.User) {
+		return payment, nil, ErrNotifyForbidden
 	}
 
 	// Check if the order products exist
@@ -257,10 +276,18 @@ func notifyPayment(body []byte, owner string, paymentName string) (*Payment, *pp
 	return payment, notifyResult, nil
 }
 
-func NotifyPayment(body []byte, owner string, paymentName string, lang string) (*Payment, error) {
-	payment, notifyResult, err := notifyPayment(body, owner, paymentName)
+func NotifyPayment(body []byte, owner string, paymentName string, sessionUser string, lang string) (*Payment, error) {
+	payment, notifyResult, err := notifyPayment(body, owner, paymentName, sessionUser)
 	if payment == nil {
 		return nil, fmt.Errorf("the payment: %s does not exist", paymentName)
+	}
+
+	// An unauthorized caller is rejected outright: don't touch the payment or
+	// order state at all (in particular, don't fall through to the "Error"
+	// state below, which would let an unauthorized caller still flip
+	// someone else's order out of "Created").
+	if errors.Is(err, ErrNotifyForbidden) {
+		return nil, err
 	}
 
 	// Check if payment is already in a terminal state to prevent duplicate processing
