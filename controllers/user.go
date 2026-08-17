@@ -674,6 +674,11 @@ func (c *ApiController) SetPassword() {
 		return
 	}
 
+	if err = object.RevokeUserAuthenticationState(targetUser.Owner, targetUser.Name); err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	c.ResponseOk()
 }
 
