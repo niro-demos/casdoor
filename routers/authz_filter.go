@@ -71,6 +71,26 @@ func checkIsOrgOwnerObject(urlPath string) bool {
 	return false
 }
 
+// bodyOwnerObject lists mutation routes whose handler resolves the object it
+// acts on exclusively from the JSON request body (never from the `id` query
+// parameter). For these routes the authorization check must be computed from
+// that same body: trusting a caller-supplied `id` would let a caller pass
+// authorization with a same-owner decoy `id` while the body names a
+// different owner's object, which is exactly what the handler acts on.
+var bodyOwnerObject = []string{
+	"/api/delete-group",
+	"/api/delete-user",
+}
+
+func checkIsBodyOwnerObject(urlPath string) bool {
+	for _, p := range bodyOwnerObject {
+		if urlPath == p {
+			return true
+		}
+	}
+	return false
+}
+
 func getUsername(ctx *context.Context) (username string) {
 	username, ok := ctx.Input.Session("username").(string)
 	if !ok || username == "" {
@@ -133,6 +153,48 @@ func getObject(ctx *context.Context) (string, string, error) {
 		return ctx.Input.Param(":owner"), ctx.Input.Param(":name"), nil
 	}
 
+	// GET /api/get-ldap and POST /api/update-ldap accept a caller-controlled
+	// owner segment (the "owner/" prefix of the `id` query param on GET, or
+	// the `owner` JSON field on POST) that need not match the LDAP row's
+	// real owner. Deriving the authorization object from that caller-
+	// supplied value would let an org admin pass authorization with a
+	// same-owner decoy while reading/rewriting another organization's LDAP
+	// server. Resolve the object from the actual database row instead, the
+	// same way `-organization`/`-syncer`/`-webhook`/`-application`/`-token`
+	// routes are protected via orgOwnerObject.
+	if path == "/api/get-ldap" || path == "/api/update-ldap" {
+		var ldapId string
+		if method == http.MethodGet {
+			if rawId := ctx.Input.Query("id"); rawId != "" {
+				if _, name, err := util.GetOwnerAndNameFromIdWithError(rawId); err == nil {
+					ldapId = name
+				} else {
+					ldapId = rawId
+				}
+			}
+		} else {
+			var payload struct {
+				Id string `json:"id"`
+			}
+			if err := json.Unmarshal(ctx.Input.RequestBody, &payload); err == nil {
+				ldapId = payload.Id
+			}
+		}
+
+		if ldapId == "" {
+			return "", "", nil
+		}
+
+		ldap, err := object.GetLdap(ldapId)
+		if err != nil {
+			return "", "", err
+		}
+		if ldap == nil {
+			return "", "", nil
+		}
+		return ldap.Owner, ldap.Id, nil
+	}
+
 	if method == http.MethodGet {
 		if ctx.Request.URL.Path == "/api/get-policies" {
 			if ctx.Input.Query("id") == "/" {
@@ -147,6 +209,20 @@ func getObject(ctx *context.Context) (string, string, error) {
 					return util.GetOwnerAndNameFromIdWithError(id)
 				}
 			}
+		}
+
+		// GET /api/get-session is authorized on `sessionPkId` — the same
+		// parameter controllers/session.go's GetSingleSession actually reads
+		// to fetch the record — never on `id`, which a caller can set to
+		// their own identity as a decoy while `sessionPkId` names a
+		// different account's session.
+		if ctx.Request.URL.Path == "/api/get-session" {
+			sessionPkId := ctx.Input.Query("sessionPkId")
+			tokens := strings.SplitN(sessionPkId, "/", 3)
+			if len(tokens) == 3 {
+				return tokens[0], tokens[1], nil
+			}
+			return "", "", nil
 		}
 
 		organization := ctx.Input.Query("organization")
@@ -188,14 +264,19 @@ func getObject(ctx *context.Context) (string, string, error) {
 		}
 
 		isOwnerObjPath := checkIsOrgOwnerObject(path)
+		isBodyOwnerObjPath := checkIsBodyOwnerObject(path)
 
 		// For non-GET requests, if the `id` query param is present it is the
 		// authoritative identifier of the object being operated on.  Use it
 		// instead of the request body so that an attacker cannot spoof the
 		// object owner by injecting "owner":"admin" (or any other value) into
 		// the request body while pointing the URL at a different organization's
-		// resource.
-		if id := ctx.Input.Query("id"); id != "" && (!isOwnerObjPath || strings.HasSuffix(path, "update-organization")) {
+		// resource. This does not apply to bodyOwnerObject routes, whose
+		// handlers never consult `id` at all and act solely on the body — for
+		// those, trusting `id` here would let a caller pass authorization with
+		// a decoy `id` while the body (what's actually mutated) names a
+		// different owner's object.
+		if id := ctx.Input.Query("id"); id != "" && !isBodyOwnerObjPath && (!isOwnerObjPath || strings.HasSuffix(path, "update-organization")) {
 			owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 			if err == nil {
 				return owner, name, nil
