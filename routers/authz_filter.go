@@ -135,17 +135,19 @@ func getObject(ctx *context.Context) (string, string, error) {
 
 	if method == http.MethodGet {
 		if ctx.Request.URL.Path == "/api/get-policies" {
-			if ctx.Input.Query("id") == "/" {
-				adapterId := ctx.Input.Query("adapterId")
-				if adapterId != "" {
-					return util.GetOwnerAndNameFromIdWithError(adapterId)
-				}
-			} else {
-				// query == "?id=built-in/admin"
-				id := ctx.Input.Query("id")
-				if id != "" {
-					return util.GetOwnerAndNameFromIdWithError(id)
-				}
+			// controllers/enforcer.go GetPolicies() gives adapterId
+			// unconditional priority over id whenever it is non-empty, so the
+			// authz object must be derived the same way - otherwise the
+			// tenant-ownership check validates a different resource than the
+			// one the controller actually acts on.
+			adapterId := ctx.Input.Query("adapterId")
+			if adapterId != "" {
+				return util.GetOwnerAndNameFromIdWithError(adapterId)
+			}
+			// query == "?id=built-in/admin"
+			id := ctx.Input.Query("id")
+			if id != "" {
+				return util.GetOwnerAndNameFromIdWithError(id)
 			}
 		}
 
@@ -159,10 +161,12 @@ func getObject(ctx *context.Context) (string, string, error) {
 				if err != nil {
 					return owner, name, err
 				}
-				if organization != "" {
-					return organization, name, nil
-				}
 
+				// The object being accessed is identified solely by id; the
+				// client-supplied organization query param must never
+				// override the resource's real owner (it is, at most, used
+				// later by the handler to scope a *list*, never to decide
+				// access to a specific id).
 				if strings.HasSuffix(ctx.Request.URL.Path, "organization") {
 					return name, name, nil
 				}
