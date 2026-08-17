@@ -723,6 +723,19 @@ func (c *ApiController) Login() {
 				return
 			}
 
+			// A non-shared application only trusts members of its own
+			// organization. Without this check, a client-supplied
+			// authForm.Organization that differs from application.Organization
+			// would sail straight through to CheckUserPassword below, letting a
+			// valid user of ANY organization authenticate through an
+			// application that was never provisioned for them. Shared
+			// applications are exempt by design: they resolve the caller's
+			// real organization themselves, below.
+			if !application.IsShared && application.Organization != authForm.Organization {
+				c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(authForm.Organization, authForm.Username)))
+				return
+			}
+
 			clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
 
 			var enableCaptcha bool
