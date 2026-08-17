@@ -413,19 +413,42 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 		}
 	}
 
-	if clientSecret != "" && application.ClientSecret != clientSecret {
-		return &TokenError{
-			Error:            InvalidClient,
-			ErrorDescription: "client_secret is invalid",
-		}, nil
-	}
-
 	// check whether the refresh token is valid, and has not expired.
 	token, err := GetTokenByRefreshToken(refreshToken)
 	if err != nil || token == nil {
 		return &TokenError{
 			Error:            InvalidGrant,
 			ErrorDescription: "refresh token is invalid or revoked",
+		}, nil
+	}
+
+	// Mirror the authorization_code grant's rule (object/token_oauth.go,
+	// GetAuthorizationCodeToken): a client_secret can only be omitted for a
+	// public/PKCE client. token.CodeChallenge carries the PKCE marker from
+	// the original authorization request forward across every refresh
+	// (propagated onto newToken below), so it stays the reliable signal of
+	// public-client-ness for as long as the token chain lives. A
+	// confidential client (CodeChallenge == "") must always present its
+	// client_secret, even when the request simply omits the field.
+	if token.CodeChallenge == "" {
+		if clientSecret == "" {
+			return &TokenError{
+				Error:            InvalidClient,
+				ErrorDescription: "client_secret is required",
+			}, nil
+		}
+		if application.ClientSecret != clientSecret {
+			return &TokenError{
+				Error:            InvalidClient,
+				ErrorDescription: "client_secret is invalid",
+			}, nil
+		}
+	} else if clientSecret != "" && application.ClientSecret != clientSecret {
+		// PKCE clients may omit the secret, but if one is provided it must
+		// still be accurate.
+		return &TokenError{
+			Error:            InvalidClient,
+			ErrorDescription: "client_secret is invalid",
 		}, nil
 	}
 
@@ -503,18 +526,19 @@ func RefreshToken(application *Application, grantType string, refreshToken strin
 	}
 
 	newToken := &Token{
-		Owner:        application.Owner,
-		Name:         tokenName,
-		CreatedTime:  util.GetCurrentTime(),
-		Application:  application.Name,
-		Organization: user.Owner,
-		User:         user.Name,
-		Code:         util.GenerateClientId(),
-		AccessToken:  newAccessToken,
-		RefreshToken: newRefreshToken,
-		ExpiresIn:    int(application.ExpireInHours * float64(hourSeconds)),
-		Scope:        scope,
-		TokenType:    "Bearer",
+		Owner:         application.Owner,
+		Name:          tokenName,
+		CreatedTime:   util.GetCurrentTime(),
+		Application:   application.Name,
+		Organization:  user.Owner,
+		User:          user.Name,
+		Code:          util.GenerateClientId(),
+		AccessToken:   newAccessToken,
+		RefreshToken:  newRefreshToken,
+		ExpiresIn:     int(application.ExpireInHours * float64(hourSeconds)),
+		Scope:         scope,
+		TokenType:     "Bearer",
+		CodeChallenge: token.CodeChallenge,
 	}
 	_, err = AddToken(newToken)
 	if err != nil {
