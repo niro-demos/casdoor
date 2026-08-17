@@ -229,17 +229,26 @@ func (c *ApiController) UploadResource() {
 	createdTime := c.Ctx.Input.Query("createdTime")
 	description := c.Ctx.Input.Query("description")
 
+	if username == "" || fullFilePath == "" {
+		c.ResponseError(fmt.Sprintf(c.T("resource:Username or fullFilePath is empty: username = %s, fullFilePath = %s"), username, fullFilePath))
+		return
+	}
+
+	user, ok := c.RequireSignedInUser()
+	if !ok {
+		return
+	}
+	if !canUploadResourceForTarget(user, owner, username) {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	file, header, err := c.GetFile("file")
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
 	defer file.Close()
-
-	if username == "" || fullFilePath == "" {
-		c.ResponseError(fmt.Sprintf(c.T("resource:Username or fullFilePath is empty: username = %s, fullFilePath = %s"), username, fullFilePath))
-		return
-	}
 
 	filename := filepath.Base(fullFilePath)
 	fileBuffer := bytes.NewBuffer(nil)
@@ -396,4 +405,21 @@ func (c *ApiController) UploadResource() {
 	}
 
 	c.ResponseOk(fileUrl, objectKey)
+}
+
+func canUploadResourceForTarget(user *object.User, owner string, username string) bool {
+	if user == nil {
+		return false
+	}
+	if user.IsGlobalAdmin() {
+		return true
+	}
+	if user.Owner != owner {
+		return false
+	}
+	if user.IsAdmin {
+		return true
+	}
+
+	return user.Name == username
 }
