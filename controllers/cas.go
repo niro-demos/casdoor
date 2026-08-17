@@ -35,11 +35,6 @@ const (
 	UnauthorizedService      string = "UNAUTHORIZED_SERVICE"
 )
 
-func queryUnescape(service string) string {
-	s, _ := url.QueryUnescape(service)
-	return s
-}
-
 func (c *RootController) CasValidate() {
 	ticket := c.Ctx.Input.Query("ticket")
 	service := c.Ctx.Input.Query("service")
@@ -102,7 +97,7 @@ func (c *RootController) CasP3ProxyValidate() {
 	// find the token
 	if ok {
 		// check whether service is the one for which we previously issued token
-		if strings.HasPrefix(service, issuedService) || strings.HasPrefix(queryUnescape(service), issuedService) {
+		if service == issuedService {
 			serviceResponse.Success = response
 		} else {
 			// service not match
