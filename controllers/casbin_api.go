@@ -306,6 +306,52 @@ func (c *ApiController) BatchEnforce() {
 	c.ResponseOk(res, keyRes)
 }
 
+// resolveCasbinUserId returns the userId to use for a per-user casbin
+// authorization-data lookup (GetAllRoles/GetAllObjects/GetAllActions).
+//
+// These three endpoints are globally allow-listed by URL path in
+// authz/authz.go, so - unlike GetRole/GetRoles - the casbin owner-matching
+// enforcement never runs for them; the handler itself is the only gate. When
+// userId is supplied and refers to a different organization than the
+// caller's own, the lookup is rejected unless the caller is a global admin,
+// mirroring the owner/admin check already enforced on the sibling
+// GetRole/GetRoles endpoints. Same-organization and self lookups keep
+// working exactly as before for any logged-in user.
+func (c *ApiController) resolveCasbinUserId(userId string) (string, bool) {
+	sessionUserId := c.GetSessionUsername()
+	if sessionUserId == "" {
+		c.ResponseError(c.T("general:Please login first"))
+		return "", false
+	}
+
+	if userId == "" {
+		return sessionUserId, true
+	}
+
+	if userId == sessionUserId || c.IsGlobalAdmin() {
+		return userId, true
+	}
+
+	targetOwner, _, err := util.GetOwnerAndNameFromIdWithError(userId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return "", false
+	}
+
+	callerOwner, _, err := util.GetOwnerAndNameFromIdWithError(sessionUserId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return "", false
+	}
+
+	if targetOwner != callerOwner {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return "", false
+	}
+
+	return userId, true
+}
+
 // GetAllObjects
 // @Title GetAllObjects
 // @Tag Enforcer API
@@ -314,13 +360,9 @@ func (c *ApiController) BatchEnforce() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-objects [get]
 func (c *ApiController) GetAllObjects() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.resolveCasbinUserId(c.Ctx.Input.Query("userId"))
+	if !ok {
+		return
 	}
 
 	objects, err := object.GetAllObjects(userId)
@@ -340,13 +382,9 @@ func (c *ApiController) GetAllObjects() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-actions [get]
 func (c *ApiController) GetAllActions() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.resolveCasbinUserId(c.Ctx.Input.Query("userId"))
+	if !ok {
+		return
 	}
 
 	actions, err := object.GetAllActions(userId)
@@ -366,13 +404,9 @@ func (c *ApiController) GetAllActions() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /get-all-roles [get]
 func (c *ApiController) GetAllRoles() {
-	userId := c.Ctx.Input.Query("userId")
-	if userId == "" {
-		userId = c.GetSessionUsername()
-		if userId == "" {
-			c.ResponseError(c.T("general:Please login first"))
-			return
-		}
+	userId, ok := c.resolveCasbinUserId(c.Ctx.Input.Query("userId"))
+	if !ok {
+		return
 	}
 
 	roles, err := object.GetAllRoles(userId)
