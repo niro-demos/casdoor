@@ -213,7 +213,11 @@ func DeleteRole(role *Role) (bool, error) {
 
 	for _, permission := range permissions {
 		permission.Roles = util.DeleteVal(permission.Roles, roleId)
-		_, err := UpdatePermission(permission.GetId(), permission)
+		// Internal system update: the permission's Owner is untouched here
+		// (only Roles is mutated), so this is not an owner-rewrite path.
+		// isGlobalAdmin=true bypasses the ownership guard for this trusted
+		// call, matching the permission's own unchanged owner.
+		_, err := UpdatePermission(permission.GetId(), permission, true, "")
 		if err != nil {
 			return false, err
 		}

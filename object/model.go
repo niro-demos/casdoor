@@ -15,10 +15,12 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/casbin/casbin/v2/config"
 	"github.com/casbin/casbin/v2/model"
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	"github.com/xorm-io/core"
 )
@@ -104,13 +106,13 @@ func getModelEx(id string) (*Model, error) {
 	return getModel("built-in", name)
 }
 
-func UpdateModelWithCheck(id string, modelObj *Model) error {
+func UpdateModelWithCheck(id string, modelObj *Model, isGlobalAdmin bool, lang string) error {
 	// check model grammar
 	_, err := model.NewModelFromString(modelObj.ModelText)
 	if err != nil {
 		return err
 	}
-	_, err = UpdateModel(id, modelObj)
+	_, err = UpdateModel(id, modelObj, isGlobalAdmin, lang)
 	if err != nil {
 		return err
 	}
@@ -118,15 +120,21 @@ func UpdateModelWithCheck(id string, modelObj *Model) error {
 	return nil
 }
 
-func UpdateModel(id string, modelObj *Model) (bool, error) {
+func UpdateModel(id string, modelObj *Model, isGlobalAdmin bool, lang string) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
 	}
-	if m, err := getModel(owner, name); err != nil {
+
+	oldModel, err := getModel(owner, name)
+	if err != nil {
 		return false, err
-	} else if m == nil {
+	} else if oldModel == nil {
 		return false, nil
+	}
+
+	if !isGlobalAdmin && oldModel.Owner != modelObj.Owner {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
 	if name != modelObj.Name {
