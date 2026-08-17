@@ -42,12 +42,15 @@ func (c *ApiController) FaceIDSigninBegin() {
 		return
 	}
 	if user == nil {
-		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(userOwner, userName)))
+		// Do not reveal whether the user exists (TC-367B572B): an
+		// unauthenticated caller must not be able to distinguish "no such
+		// user" from "user has no Face ID enrolled".
+		c.RespondNoSigninCredential(fmt.Sprintf("no such user: %s", util.GetId(userOwner, userName)))
 		return
 	}
 
 	if len(user.FaceIds) == 0 {
-		c.ResponseError(c.T("check:Face data does not exist, cannot log in"))
+		c.RespondNoSigninCredential(fmt.Sprintf("user %s has no Face ID enrolled", util.GetId(userOwner, userName)))
 		return
 	}
 
