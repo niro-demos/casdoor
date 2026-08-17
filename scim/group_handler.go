@@ -36,23 +36,21 @@ func (h GroupResourceHandler) Create(r *http.Request, attrs scim.ResourceAttribu
 }
 
 func (h GroupResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := getScimGroup(id)
+	group, err := getOwnedScimGroup(r, id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if resource == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+	resource, err := scimGroupResource(group)
+	if err != nil {
+		return scim.Resource{}, err
 	}
 	return *resource, nil
 }
 
 func (h GroupResourceHandler) Delete(r *http.Request, id string) error {
-	group, err := object.GetGroup(id)
+	group, err := getOwnedScimGroup(r, id)
 	if err != nil {
 		return err
-	}
-	if group == nil {
-		return errors.ScimErrorResourceNotFound(id)
 	}
 	if err := clearGroupMembers(id); err != nil {
 		return err
@@ -62,16 +60,23 @@ func (h GroupResourceHandler) Delete(r *http.Request, id string) error {
 }
 
 func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	owner, ok := callerOwner(r)
+	if !ok {
+		return scim.Page{}, errors.ScimErrorResourceNotFound("")
+	}
+
 	if params.Count == 0 {
-		count, err := object.GetGroupCount("", "", "")
+		count, err := object.GetGroupCount(owner, "", "")
 		if err != nil {
 			return scim.Page{}, err
 		}
 		return scim.Page{TotalResults: int(count)}, nil
 	}
 
-	// startIndex is 1-based
-	groups, err := object.GetPaginationGroups("", params.StartIndex-1, params.Count, "", "", "", "")
+	// startIndex is 1-based; owner == "" (built-in global admin) applies no
+	// organization filter, otherwise results are confined to the caller's own
+	// organization.
+	groups, err := object.GetPaginationGroups(owner, params.StartIndex-1, params.Count, "", "", "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -87,7 +92,7 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 		}
 	}
 
-	totalCount, err := object.GetGroupCount("", "", "")
+	totalCount, err := object.GetGroupCount(owner, "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -99,27 +104,57 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 }
 
 func (h GroupResourceHandler) Patch(r *http.Request, id string, operations []scim.PatchOperation) (scim.Resource, error) {
-	group, err := object.GetGroup(id)
+	group, err := getOwnedScimGroup(r, id)
 	if err != nil {
 		return scim.Resource{}, err
-	}
-	if group == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	return updateScimGroupByPatch(id, group, operations)
 }
 
 func (h GroupResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
-	group, err := object.GetGroup(id)
+	group, err := getOwnedScimGroup(r, id)
 	if err != nil {
 		return scim.Resource{}, err
-	}
-	if group == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	resource := &scim.Resource{Attributes: attrs}
 	err = updateScimGroup(id, group, resource)
 	return *resource, err
+}
+
+// getOwnedScimGroup resolves a group by SCIM id (owner/name) and enforces
+// that the caller (scoped by controllers.RootController.HandleScim via
+// RequireAdmin) is allowed to act on it. It returns a SCIM "resource not
+// found" error -- rather than "forbidden" -- both when the group truly
+// doesn't exist and when it belongs to a different organization than the
+// caller, so a tenant admin cannot use the distinction to enumerate which
+// group IDs exist in other organizations. Note that, unlike users, a group's
+// id already embeds its owning organization (object.Group.GetId() returns
+// "owner/name"), so the ownership check below is what actually stops a
+// caller from reaching another organization's group by constructing its id --
+// object.GetGroup(id) alone would happily resolve it.
+func getOwnedScimGroup(r *http.Request, id string) (*object.Group, error) {
+	callerOrg, ok := callerOwner(r)
+	if !ok {
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+
+	group, err := object.GetGroup(id)
+	if err != nil {
+		return nil, err
+	}
+	if group == nil || !ownerAllowed(callerOrg, group.Owner) {
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+	return group, nil
+}
+
+// scimGroupResource builds the SCIM resource for an already-resolved group.
+func scimGroupResource(group *object.Group) (*scim.Resource, error) {
+	users, err := object.GetGroupUsers(group.GetId())
+	if err != nil {
+		return nil, err
+	}
+	return group2resource(group, users), nil
 }
 
 func getScimGroup(id string) (*scim.Resource, error) {

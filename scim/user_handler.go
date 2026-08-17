@@ -35,31 +35,30 @@ func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttribut
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
-	resource, err := GetScimUser(id)
+	user, err := getOwnedScimUser(r, id)
 	if err != nil {
 		return scim.Resource{}, err
 	}
-	if resource == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
-	}
-	return *resource, nil
+	return *user2resource(user), nil
 }
 
 func (h UserResourceHandler) Delete(r *http.Request, id string) error {
-	user, err := object.GetUserByUserIdOnly(id)
+	user, err := getOwnedScimUser(r, id)
 	if err != nil {
 		return err
-	}
-	if user == nil {
-		return errors.ScimErrorResourceNotFound(id)
 	}
 	_, err = object.DeleteUser(user)
 	return err
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	owner, ok := callerOwner(r)
+	if !ok {
+		return scim.Page{}, errors.ScimErrorResourceNotFound("")
+	}
+
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		count, err := object.GetUserCount(owner, "", "", "")
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -67,8 +66,10 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 	}
 
 	resources := make([]scim.Resource, 0)
-	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	// startIndex is 1-based index; owner == "" (built-in global admin) applies
+	// no organization filter, otherwise results are confined to the caller's
+	// own organization.
+	users, err := object.GetPaginationUsers(owner, params.StartIndex-1, params.Count, "", "", "", "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -82,27 +83,42 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 }
 
 func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim.PatchOperation) (scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
-	if err != nil {
+	if _, err := getOwnedScimUser(r, id); err != nil {
 		return scim.Resource{}, err
-	}
-	if user == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
 	return UpdateScimUserByPatchOperation(id, operations)
 }
 
 func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.ResourceAttributes) (scim.Resource, error) {
-	user, err := object.GetUserByUserIdOnly(id)
-	if err != nil {
+	if _, err := getOwnedScimUser(r, id); err != nil {
 		return scim.Resource{}, err
 	}
-	if user == nil {
-		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
-	}
 	resource := &scim.Resource{Attributes: attrs}
-	err = UpdateScimUser(id, resource)
+	err := UpdateScimUser(id, resource)
 	return *resource, err
+}
+
+// getOwnedScimUser resolves a user by SCIM id and enforces that the caller
+// (scoped by controllers.RootController.HandleScim via RequireAdmin) is
+// allowed to act on it. It returns a SCIM "resource not found" error --
+// rather than "forbidden" -- both when the user truly doesn't exist and when
+// it belongs to a different organization than the caller, so a tenant admin
+// cannot use the distinction to enumerate which user IDs exist in other
+// organizations.
+func getOwnedScimUser(r *http.Request, id string) (*object.User, error) {
+	callerOrg, ok := callerOwner(r)
+	if !ok {
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+
+	user, err := object.GetUserByUserIdOnly(id)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil || !ownerAllowed(callerOrg, user.Owner) {
+		return nil, errors.ScimErrorResourceNotFound(id)
+	}
+	return user, nil
 }
 
 func GetScimUser(id string) (*scim.Resource, error) {
