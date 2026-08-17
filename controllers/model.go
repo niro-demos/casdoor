@@ -102,7 +102,7 @@ func (c *ApiController) UpdateModel() {
 		return
 	}
 
-	c.Data["json"] = wrapErrorResponse(object.UpdateModelWithCheck(id, &model))
+	c.Data["json"] = wrapErrorResponse(object.UpdateModelWithCheck(id, &model, c.IsGlobalAdmin(), c.GetAcceptLanguage()))
 	c.ServeJSON()
 }
 

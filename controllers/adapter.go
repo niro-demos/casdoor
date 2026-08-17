@@ -102,7 +102,7 @@ func (c *ApiController) UpdateAdapter() {
 		return
 	}
 
-	c.Data["json"] = wrapActionResponse(object.UpdateAdapter(id, &adapter))
+	c.Data["json"] = wrapActionResponse(object.UpdateAdapter(id, &adapter, c.IsGlobalAdmin(), c.GetAcceptLanguage()))
 	c.ServeJSON()
 }
 

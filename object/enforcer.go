@@ -15,10 +15,12 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/casbin/casbin/v2"
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	xormadapter "github.com/casdoor/xorm-adapter/v3"
 	"github.com/xorm-io/core"
@@ -91,15 +93,21 @@ func GetEnforcer(id string) (*Enforcer, error) {
 	return getEnforcer(owner, name)
 }
 
-func UpdateEnforcer(id string, enforcer *Enforcer) (bool, error) {
+func UpdateEnforcer(id string, enforcer *Enforcer, isGlobalAdmin bool, lang string) (bool, error) {
 	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
 		return false, err
 	}
-	if oldEnforcer, err := getEnforcer(owner, name); err != nil {
+
+	oldEnforcer, err := getEnforcer(owner, name)
+	if err != nil {
 		return false, err
 	} else if oldEnforcer == nil {
 		return false, nil
+	}
+
+	if !isGlobalAdmin && oldEnforcer.Owner != enforcer.Owner {
+		return false, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
 	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(enforcer)
