@@ -203,6 +203,11 @@ func refineFullFilePath(fullFilePath string) (string, string) {
 }
 
 func (c *ApiController) GetProviderFromContext(category string) (*object.Provider, error) {
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return nil, errors.New(c.T("general:Please login first"))
+	}
+
 	providerName := c.Ctx.Input.Query("provider")
 	if providerName == "" {
 		field := c.Ctx.Input.Query("field")
@@ -227,11 +232,6 @@ func (c *ApiController) GetProviderFromContext(category string) (*object.Provide
 		}
 
 		return provider, nil
-	}
-
-	userId, ok := c.RequireSignedIn()
-	if !ok {
-		return nil, errors.New(c.T("general:Please login first"))
 	}
 
 	application, err := object.GetApplicationByUserId(userId)
