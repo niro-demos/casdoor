@@ -680,6 +680,16 @@ func GetMaskedUser(user *User, isAdminOrSelf bool, errs ...error) (*User, error)
 	}
 
 	if !isAdminOrSelf {
+		// PasswordSalt/PasswordType are credential-cracking-support metadata
+		// (the bcrypt salt and hash algorithm identifier) and must never be
+		// visible to a non-owner/non-admin caller, regardless of any
+		// organization-level AccountItems/IsProfilePublic configuration.
+		if user.PasswordSalt != "" {
+			user.PasswordSalt = ""
+		}
+		if user.PasswordType != "" {
+			user.PasswordType = ""
+		}
 		if user.OriginalToken != "" {
 			user.OriginalToken = "***"
 		}
