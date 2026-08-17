@@ -110,6 +110,7 @@
     "Insufficient balance: new organization balance %v would be below credit limit %v": "Số dư không đủ: số dư tổ chức mới %v sẽ thấp hơn giới hạn tín dụng %v",
     "Missing parameter": "Thiếu tham số",
     "Only admin user can specify user": "Chỉ người dùng quản trị mới có thể chỉ định người dùng",
+    "Only admin user can specify a different owner": "Chỉ người dùng quản trị mới có thể chỉ định chủ sở hữu khác",
     "Please login first": "Vui lòng đăng nhập trước",
     "The LDAP: %s does not exist": "LDAP: %s không tồn tại",
     "The organization: %s should have one application at least": "Tổ chức: %s cần có ít nhất một ứng dụng",
