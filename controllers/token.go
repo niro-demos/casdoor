@@ -510,6 +510,10 @@ func (c *ApiController) IntrospectToken() {
 	if err != nil || !ok {
 		return
 	}
+	// The application authenticated above is the *caller's* own application.
+	// Remember it so it can be compared, below, against the token's actual
+	// owning application before any token metadata is disclosed.
+	callerApplication := application
 
 	respondWithInactiveToken := func() {
 		c.Data["json"] = &object.IntrospectionResponse{Active: false}
@@ -613,6 +617,18 @@ func (c *ApiController) IntrospectToken() {
 		}
 		if application == nil {
 			c.ResponseError(fmt.Sprintf(c.T("auth:The application: %s does not exist"), token.Application))
+			return
+		}
+
+		// RFC 7662 §2.2: the introspection response must be scoped to the
+		// token's own authorized party. The caller authenticated at the top
+		// of this handler (callerApplication) may hold valid credentials for
+		// its own, unrelated application -- that alone does not entitle it to
+		// another application's token metadata. If the token does not belong
+		// to the caller's own application, report it as inactive instead of
+		// falling through to populate the full response.
+		if application.GetId() != callerApplication.GetId() {
+			respondWithInactiveToken()
 			return
 		}
 
