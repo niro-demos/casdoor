@@ -174,9 +174,14 @@ func (c *ApiController) ValidateCoupon() {
 		return
 	}
 
-	_, userName, err := util.GetOwnerAndNameFromIdWithError(userId)
+	userOwner, userName, err := util.GetOwnerAndNameFromIdWithError(userId)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+
+	if req.Owner != userOwner {
+		c.ResponseError(c.T("coupon:You are not allowed to validate coupons for this organization"))
 		return
 	}
 
