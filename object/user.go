@@ -679,6 +679,14 @@ func GetMaskedUser(user *User, isAdminOrSelf bool, errs ...error) (*User, error)
 		user.Password = "***"
 	}
 
+	// PasswordSalt is raw password-hashing material: like Password itself,
+	// no caller (admin, self, or third party) legitimately needs it back in
+	// a masked user, so it is always cleared rather than gated on
+	// isAdminOrSelf.
+	if user.PasswordSalt != "" {
+		user.PasswordSalt = ""
+	}
+
 	if !isAdminOrSelf {
 		if user.OriginalToken != "" {
 			user.OriginalToken = "***"
