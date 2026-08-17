@@ -174,13 +174,18 @@ func (c *ApiController) ValidateCoupon() {
 		return
 	}
 
-	_, userName, err := util.GetOwnerAndNameFromIdWithError(userId)
+	owner, userName, err := util.GetOwnerAndNameFromIdWithError(userId)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
 
-	coupon, err := object.ValidateCoupon(req.Owner, req.CouponCode, userName, req.Products, req.Amount, req.Currency)
+	// Always scope the coupon lookup to the caller's own session-resolved
+	// organization, never to the client-supplied req.Owner: trusting
+	// req.Owner would let any authenticated user disclose and enumerate
+	// another tenant's coupon codes/discounts by supplying that tenant's
+	// name as owner.
+	coupon, err := object.ValidateCoupon(owner, req.CouponCode, userName, req.Products, req.Amount, req.Currency)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return
