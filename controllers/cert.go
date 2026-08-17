@@ -45,13 +45,7 @@ func (c *ApiController) GetCerts() {
 			return
 		}
 
-		if !c.IsAdmin() {
-			certs, err = object.GetMaskedCerts(certs, nil)
-			if err != nil {
-				c.ResponseError(err.Error())
-				return
-			}
-		}
+		certs = maskUnauthorizedCertSecrets(certs, c.IsGlobalAdmin(), owner)
 
 		c.ResponseOk(certs)
 	} else {
@@ -69,16 +63,23 @@ func (c *ApiController) GetCerts() {
 			return
 		}
 
-		if !c.IsAdmin() {
-			certs, err = object.GetMaskedCerts(certs, err)
-			if err != nil {
-				c.ResponseError(err.Error())
-				return
-			}
-		}
+		certs = maskUnauthorizedCertSecrets(certs, c.IsGlobalAdmin(), owner)
 
 		c.ResponseOk(certs, paginator.Nums())
 	}
+}
+
+func maskUnauthorizedCertSecrets(certs []*object.Cert, isGlobalAdmin bool, owner string) []*object.Cert {
+	if isGlobalAdmin {
+		return certs
+	}
+
+	for _, cert := range certs {
+		if cert.Owner == "admin" || cert.Owner != owner {
+			object.GetMaskedCert(cert)
+		}
+	}
+	return certs
 }
 
 // GetGlobalCerts
