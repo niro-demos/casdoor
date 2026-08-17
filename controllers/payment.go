@@ -259,9 +259,28 @@ func (c *ApiController) InvoicePayment() {
 		return
 	}
 
+	if !c.IsAdmin() {
+		sessionUser := c.GetSessionUsername()
+		if sessionUser == "" {
+			c.ResponseError("Forbidden")
+			return
+		}
+
+		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if payment != nil && (payment.Owner != sessionUserOwner || payment.User != sessionUserName) {
+			c.ResponseError("Forbidden")
+			return
+		}
+	}
+
 	invoiceUrl, err := object.InvoicePayment(payment)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
 	}
 	c.ResponseOk(invoiceUrl)
 }
