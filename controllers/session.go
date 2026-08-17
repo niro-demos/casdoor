@@ -85,6 +85,27 @@ func (c *ApiController) GetSingleSession() {
 	c.ResponseOk(session)
 }
 
+// checkSessionAccess ensures only the global admin or the target session's
+// own organization admin may write to the session-tracking table. A global
+// admin (RequireAdmin returns an empty organization) may act on any
+// organization's sessions; an org admin may only act on sessions whose
+// owner matches their own organization. This must not rely on the generic
+// Casbin subOwner==objOwner && subName==objName self-service clause, which
+// is intended for self-service resources like /api/get-account and would
+// otherwise let any standard user write to her own session row.
+func (c *ApiController) checkSessionAccess(owner string, organization string) bool {
+	if c.IsGlobalAdmin() {
+		return true
+	}
+
+	if owner != organization {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return false
+	}
+
+	return true
+}
+
 // UpdateSession
 // @Title UpdateSession
 // @Tag Session API
@@ -93,10 +114,19 @@ func (c *ApiController) GetSingleSession() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-session [post]
 func (c *ApiController) UpdateSession() {
+	organization, ok := c.RequireAdmin()
+	if !ok {
+		return
+	}
+
 	var session object.Session
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &session)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+
+	if !c.checkSessionAccess(session.Owner, organization) {
 		return
 	}
 
@@ -112,10 +142,19 @@ func (c *ApiController) UpdateSession() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /add-session [post]
 func (c *ApiController) AddSession() {
+	organization, ok := c.RequireAdmin()
+	if !ok {
+		return
+	}
+
 	var session object.Session
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &session)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+
+	if !c.checkSessionAccess(session.Owner, organization) {
 		return
 	}
 
@@ -131,10 +170,19 @@ func (c *ApiController) AddSession() {
 // @Success 200 {object} controllers.Response The Response object
 // @router /delete-session [post]
 func (c *ApiController) DeleteSession() {
+	organization, ok := c.RequireAdmin()
+	if !ok {
+		return
+	}
+
 	var session object.Session
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &session)
 	if err != nil {
 		c.ResponseError(err.Error())
+		return
+	}
+
+	if !c.checkSessionAccess(session.Owner, organization) {
 		return
 	}
 
