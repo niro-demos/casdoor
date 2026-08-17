@@ -51,7 +51,6 @@ p, *, *, GET, /api/get-app-login, *, *
 p, *, *, POST, /api/logout, *, *
 p, *, *, GET, /api/logout, *, *
 p, *, *, POST, /api/sso-logout, *, *
-p, *, *, GET, /api/sso-logout, *, *
 p, *, *, POST, /api/callback, *, *
 p, *, *, POST, /api/device-auth, *, *
 p, *, *, POST, /api/cancel-device-auth, *, *

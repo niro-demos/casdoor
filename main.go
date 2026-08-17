@@ -17,6 +17,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/beego/beego/v2/core/logs"
 	"github.com/beego/beego/v2/server/web"
@@ -49,7 +50,7 @@ func main() {
 	}
 	web.BConfig.WebConfig.Session.SessionCookieLifeTime = sessionCookieLifeTime
 	web.BConfig.WebConfig.Session.SessionGCMaxLifetime = int64(sessionCookieLifeTime)
-	// web.BConfig.WebConfig.Session.SessionCookieSameSite = http.SameSiteNoneMode
+	web.BConfig.WebConfig.Session.SessionCookieSameSite = http.SameSiteLaxMode
 
 	routers.InitAPI()
 	object.InitFlag()

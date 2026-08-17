@@ -521,7 +521,7 @@ func (c *ApiController) redirectToPostLogout(application *object.Application, re
 // @Description logout the current user from all applications or current session only
 // @Param   logoutAll   query    string  false     "Whether to logout from all sessions. Accepted values: 'true', '1', or empty (default: true). Any other value means false."
 // @Success 200 {object} controllers.Response The Response object
-// @router /sso-logout [get,post]
+// @router /sso-logout [post]
 func (c *ApiController) SsoLogout() {
 	user := c.GetSessionUsername()
 
