@@ -695,6 +695,16 @@ func GetMaskedUser(user *User, isAdminOrSelf bool, errs ...error) (*User, error)
 				}
 			}
 		}
+
+		// These credential/telemetry fields have no organization-configurable
+		// AccountItem to gate them (GetFilteredUser is allow-by-default for
+		// unlisted fields), so they must always be unconditionally redacted
+		// here for any non-privileged caller, independent of the org's
+		// IsProfilePublic setting or its AccountItems template.
+		user.PasswordSalt = ""
+		user.PasswordType = ""
+		user.CreatedIp = ""
+		user.LastSigninIp = ""
 	}
 
 	if user.ManagedAccounts != nil {
