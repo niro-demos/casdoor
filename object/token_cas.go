@@ -202,6 +202,81 @@ func escapeXMLText(input string) (string, error) {
 	return sb.String(), nil
 }
 
+// casIdentityAttributeNames is the exhaustive allow-list of identity
+// attributes that may be exposed to a CAS relying party via
+// <cas:userAttributes>. Any other field on the User struct (password hashing
+// metadata, internal bookkeeping, account state, etc.) must never reach this
+// response, regardless of what fields are later added to the User struct.
+var casIdentityAttributeNames = map[string]bool{
+	"firstName":   true,
+	"lastName":    true,
+	"title":       true,
+	"email":       true,
+	"affiliation": true,
+	"avatar":      true,
+	"phone":       true,
+	"displayName": true,
+}
+
+// populateCasUserAttributes fills attrs (both the typed identity fields and
+// the generic <cas:userAttributes> list) using only the allow-listed
+// identity fields of user. It never dumps the full User struct.
+func populateCasUserAttributes(user *User, attrs *CasAttributes) error {
+	data, err := json.Marshal(user)
+	if err != nil {
+		return err
+	}
+
+	tmp := map[string]interface{}{}
+	err = json.Unmarshal(data, &tmp)
+	if err != nil {
+		return err
+	}
+
+	for k, v := range tmp {
+		if !casIdentityAttributeNames[k] {
+			continue
+		}
+
+		value := fmt.Sprintf("%v", v)
+		if value == "<nil>" || value == "[]" || value == "map[]" {
+			value = ""
+		}
+
+		if value != "" {
+			if escapedValue, err := escapeXMLText(value); err != nil {
+				return err
+			} else {
+				value = escapedValue
+			}
+			switch k {
+			case "firstName":
+				attrs.FirstName = value
+			case "lastName":
+				attrs.LastName = value
+			case "title":
+				attrs.Title = value
+			case "email":
+				attrs.Email = value
+			case "affiliation":
+				attrs.Affiliation = value
+			case "avatar":
+				attrs.Avatar = value
+			case "phone":
+				attrs.Phone = value
+			case "displayName":
+				attrs.DisplayName = value
+			}
+			attrs.UserAttributes.Attributes = append(attrs.UserAttributes.Attributes, &CasNamedAttribute{
+				Name:  k,
+				Value: value,
+			})
+		}
+	}
+
+	return nil
+}
+
 func GenerateCasToken(userId string, service string) (string, error) {
 	user, err := GetUser(userId)
 	if err != nil {
@@ -225,52 +300,8 @@ func GenerateCasToken(userId string, service string) (string, error) {
 		ProxyGrantingTicket: fmt.Sprintf("PGTIOU-%s", util.GenerateId()),
 	}
 
-	data, err := json.Marshal(user)
-	if err != nil {
+	if err := populateCasUserAttributes(user, authenticationSuccess.Attributes); err != nil {
 		return "", err
-	}
-
-	tmp := map[string]interface{}{}
-	err = json.Unmarshal(data, &tmp)
-	if err != nil {
-		return "", err
-	}
-
-	for k, v := range tmp {
-		value := fmt.Sprintf("%v", v)
-		if value == "<nil>" || value == "[]" || value == "map[]" {
-			value = ""
-		}
-
-		if value != "" {
-			if escapedValue, err := escapeXMLText(value); err != nil {
-				return "", err
-			} else {
-				value = escapedValue
-			}
-			switch k {
-			case "firstName":
-				authenticationSuccess.Attributes.FirstName = value
-			case "lastName":
-				authenticationSuccess.Attributes.LastName = value
-			case "title":
-				authenticationSuccess.Attributes.Title = value
-			case "email":
-				authenticationSuccess.Attributes.Email = value
-			case "affiliation":
-				authenticationSuccess.Attributes.Affiliation = value
-			case "avatar":
-				authenticationSuccess.Attributes.Avatar = value
-			case "phone":
-				authenticationSuccess.Attributes.Phone = value
-			case "displayName":
-				authenticationSuccess.Attributes.DisplayName = value
-			}
-			authenticationSuccess.Attributes.UserAttributes.Attributes = append(authenticationSuccess.Attributes.UserAttributes.Attributes, &CasNamedAttribute{
-				Name:  k,
-				Value: value,
-			})
-		}
 	}
 
 	st := fmt.Sprintf("ST-%d", util.RandomIntn(math.MaxInt))
