@@ -29,12 +29,22 @@ type UserResourceHandler struct{}
 // https://datatracker.ietf.org/doc/html/rfc7644#section-3.4 How to query/update resources
 
 func (h UserResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
+	if err := requireUserResourceTenant(r, attrs); err != nil {
+		return scim.Resource{}, err
+	}
 	resource := &scim.Resource{Attributes: attrs}
 	err := AddScimUser(resource)
 	return *resource, err
 }
 
 func (h UserResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
+	user, err := object.GetUserByUserIdOnly(id)
+	if err != nil {
+		return scim.Resource{}, err
+	}
+	if user == nil || !canAccessTenantOwner(r, user.Owner) {
+		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+	}
 	resource, err := GetScimUser(id)
 	if err != nil {
 		return scim.Resource{}, err
@@ -53,13 +63,17 @@ func (h UserResourceHandler) Delete(r *http.Request, id string) error {
 	if user == nil {
 		return errors.ScimErrorResourceNotFound(id)
 	}
+	if !canAccessTenantOwner(r, user.Owner) {
+		return forbiddenTenantOperation()
+	}
 	_, err = object.DeleteUser(user)
 	return err
 }
 
 func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	owner := tenantOwnerFromRequest(r)
 	if params.Count == 0 {
-		count, err := object.GetGlobalUserCount("", "")
+		count, err := getScimUserCount(owner)
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -68,7 +82,7 @@ func (h UserResourceHandler) GetAll(r *http.Request, params scim.ListRequestPara
 
 	resources := make([]scim.Resource, 0)
 	// startIndex is 1-based index
-	users, err := object.GetPaginationGlobalUsers(params.StartIndex-1, params.Count, "", "", "", "")
+	users, err := getPaginationScimUsers(owner, params.StartIndex-1, params.Count)
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -89,6 +103,12 @@ func (h UserResourceHandler) Patch(r *http.Request, id string, operations []scim
 	if user == nil {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
+	if !canAccessTenantOwner(r, user.Owner) {
+		return scim.Resource{}, forbiddenTenantOperation()
+	}
+	if err := requireUserPatchTenant(r, operations); err != nil {
+		return scim.Resource{}, err
+	}
 	return UpdateScimUserByPatchOperation(id, operations)
 }
 
@@ -100,9 +120,64 @@ func (h UserResourceHandler) Replace(r *http.Request, id string, attrs scim.Reso
 	if user == nil {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
+	if !canAccessTenantOwner(r, user.Owner) {
+		return scim.Resource{}, forbiddenTenantOperation()
+	}
+	if err := requireUserResourceTenant(r, attrs); err != nil {
+		return scim.Resource{}, err
+	}
 	resource := &scim.Resource{Attributes: attrs}
 	err = UpdateScimUser(id, resource)
 	return *resource, err
+}
+
+func canAccessTenantOwner(r *http.Request, resourceOwner string) bool {
+	owner := tenantOwnerFromRequest(r)
+	return isGlobalScimAdmin(owner) || owner == resourceOwner
+}
+
+func requireUserResourceTenant(r *http.Request, attrs scim.ResourceAttributes) error {
+	owner := tenantOwnerFromRequest(r)
+	if isGlobalScimAdmin(owner) || resourceOwner(attrs, UserExtensionKey) == owner {
+		return nil
+	}
+	return forbiddenTenantOperation()
+}
+
+func requireUserPatchTenant(r *http.Request, operations []scim.PatchOperation) error {
+	owner := tenantOwnerFromRequest(r)
+	if isGlobalScimAdmin(owner) {
+		return nil
+	}
+	for _, op := range operations {
+		path := op.Path.String()
+		switch path {
+		case UserExtensionKey:
+			v := ToAnyMap(op.Value, AnyMap{"organization": owner})
+			if ToString(v["organization"], owner) != owner {
+				return forbiddenTenantOperation()
+			}
+		case fmt.Sprintf("%v.%v", UserExtensionKey, "organization"):
+			if ToString(op.Value, owner) != owner {
+				return forbiddenTenantOperation()
+			}
+		}
+	}
+	return nil
+}
+
+func getScimUserCount(owner string) (int64, error) {
+	if isGlobalScimAdmin(owner) {
+		return object.GetGlobalUserCount("", "")
+	}
+	return object.GetUserCount(owner, "", "", "")
+}
+
+func getPaginationScimUsers(owner string, offset int, limit int) ([]*object.User, error) {
+	if isGlobalScimAdmin(owner) {
+		return object.GetPaginationGlobalUsers(offset, limit, "", "", "", "")
+	}
+	return object.GetPaginationUsers(owner, offset, limit, "", "", "", "", "")
 }
 
 func GetScimUser(id string) (*scim.Resource, error) {

@@ -30,12 +30,22 @@ const GroupExtensionKey = "urn:ietf:params:scim:schemas:extension:enterprise:2.0
 type GroupResourceHandler struct{}
 
 func (h GroupResourceHandler) Create(r *http.Request, attrs scim.ResourceAttributes) (scim.Resource, error) {
+	if err := requireGroupResourceTenant(r, attrs); err != nil {
+		return scim.Resource{}, err
+	}
 	resource := &scim.Resource{Attributes: attrs}
 	err := addScimGroup(resource)
 	return *resource, err
 }
 
 func (h GroupResourceHandler) Get(r *http.Request, id string) (scim.Resource, error) {
+	group, err := object.GetGroup(id)
+	if err != nil {
+		return scim.Resource{}, err
+	}
+	if group == nil || !canAccessTenantOwner(r, group.Owner) {
+		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
+	}
 	resource, err := getScimGroup(id)
 	if err != nil {
 		return scim.Resource{}, err
@@ -54,6 +64,9 @@ func (h GroupResourceHandler) Delete(r *http.Request, id string) error {
 	if group == nil {
 		return errors.ScimErrorResourceNotFound(id)
 	}
+	if !canAccessTenantOwner(r, group.Owner) {
+		return forbiddenTenantOperation()
+	}
 	if err := clearGroupMembers(id); err != nil {
 		return err
 	}
@@ -62,8 +75,9 @@ func (h GroupResourceHandler) Delete(r *http.Request, id string) error {
 }
 
 func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestParams) (scim.Page, error) {
+	owner := tenantOwnerFromRequest(r)
 	if params.Count == 0 {
-		count, err := object.GetGroupCount("", "", "")
+		count, err := object.GetGroupCount(owner, "", "")
 		if err != nil {
 			return scim.Page{}, err
 		}
@@ -71,7 +85,7 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 	}
 
 	// startIndex is 1-based
-	groups, err := object.GetPaginationGroups("", params.StartIndex-1, params.Count, "", "", "", "")
+	groups, err := object.GetPaginationGroups(owner, params.StartIndex-1, params.Count, "", "", "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -87,7 +101,7 @@ func (h GroupResourceHandler) GetAll(r *http.Request, params scim.ListRequestPar
 		}
 	}
 
-	totalCount, err := object.GetGroupCount("", "", "")
+	totalCount, err := object.GetGroupCount(owner, "", "")
 	if err != nil {
 		return scim.Page{}, err
 	}
@@ -106,6 +120,12 @@ func (h GroupResourceHandler) Patch(r *http.Request, id string, operations []sci
 	if group == nil {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
+	if !canAccessTenantOwner(r, group.Owner) {
+		return scim.Resource{}, forbiddenTenantOperation()
+	}
+	if err := requireGroupPatchTenant(r, operations); err != nil {
+		return scim.Resource{}, err
+	}
 	return updateScimGroupByPatch(id, group, operations)
 }
 
@@ -117,9 +137,45 @@ func (h GroupResourceHandler) Replace(r *http.Request, id string, attrs scim.Res
 	if group == nil {
 		return scim.Resource{}, errors.ScimErrorResourceNotFound(id)
 	}
+	if !canAccessTenantOwner(r, group.Owner) {
+		return scim.Resource{}, forbiddenTenantOperation()
+	}
+	if err := requireGroupResourceTenant(r, attrs); err != nil {
+		return scim.Resource{}, err
+	}
 	resource := &scim.Resource{Attributes: attrs}
 	err = updateScimGroup(id, group, resource)
 	return *resource, err
+}
+
+func requireGroupResourceTenant(r *http.Request, attrs scim.ResourceAttributes) error {
+	owner := tenantOwnerFromRequest(r)
+	if isGlobalScimAdmin(owner) || resourceOwner(attrs, GroupExtensionKey) == owner {
+		return nil
+	}
+	return forbiddenTenantOperation()
+}
+
+func requireGroupPatchTenant(r *http.Request, operations []scim.PatchOperation) error {
+	owner := tenantOwnerFromRequest(r)
+	if isGlobalScimAdmin(owner) {
+		return nil
+	}
+	for _, op := range operations {
+		path := op.Path.String()
+		switch path {
+		case GroupExtensionKey:
+			v := ToAnyMap(op.Value, AnyMap{"organization": owner})
+			if ToString(v["organization"], owner) != owner {
+				return forbiddenTenantOperation()
+			}
+		case fmt.Sprintf("%v.%v", GroupExtensionKey, "organization"):
+			if ToString(op.Value, owner) != owner {
+				return forbiddenTenantOperation()
+			}
+		}
+	}
+	return nil
 }
 
 func getScimGroup(id string) (*scim.Resource, error) {
