@@ -35,7 +35,7 @@ func InitSiteMap() {
 }
 
 func getCasdoorCertMap() (map[string]*Cert, error) {
-	certs, err := GetCerts("")
+	certs, err := GetCerts("", true)
 	if err != nil {
 		return nil, fmt.Errorf("GetCerts() error: %s", err.Error())
 	}

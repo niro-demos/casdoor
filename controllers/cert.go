@@ -37,9 +37,10 @@ func (c *ApiController) GetCerts() {
 	value := c.Ctx.Input.Query("value")
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
+	isGlobalAdmin := c.IsGlobalAdmin()
 
 	if limit == "" || page == "" {
-		certs, err := object.GetCerts(owner)
+		certs, err := object.GetCerts(owner, isGlobalAdmin)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
@@ -56,14 +57,14 @@ func (c *ApiController) GetCerts() {
 		c.ResponseOk(certs)
 	} else {
 		limit := util.ParseInt(limit)
-		count, err := object.GetCertCount(owner, field, value)
+		count, err := object.GetCertCount(owner, isGlobalAdmin, field, value)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
 
 		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
-		certs, err := object.GetPaginationCerts(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		certs, err := object.GetPaginationCerts(owner, isGlobalAdmin, paginator.Offset(), limit, field, value, sortField, sortOrder)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return

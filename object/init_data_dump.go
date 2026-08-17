@@ -36,7 +36,7 @@ func writeInitDataToFile(filePath string) error {
 		return err
 	}
 
-	certs, err := GetCerts("")
+	certs, err := GetCerts("", true)
 	if err != nil {
 		return err
 	}

@@ -168,7 +168,12 @@ func processArgsToTempFiles(args []string) ([]string, []string, error) {
 // @Success 200 {object} controllers.Response The Response object
 // @router /run-casbin-command [get]
 func (c *ApiController) RunCasbinCommand() {
-	if !conf.IsDemoMode() && !c.IsAdmin() {
+	// This executes an OS binary on the shared application server with
+	// caller-supplied arguments and carries no owner/organization scoping at
+	// all, so only the platform's global administrator may invoke it.
+	// IsAdmin() would also pass for a tenant-scoped organization admin,
+	// which is too broad for a whole-server capability like this one.
+	if !conf.IsDemoMode() && !c.IsGlobalAdmin() {
 		c.ResponseError(c.T("auth:Unauthorized operation"))
 		return
 	}
