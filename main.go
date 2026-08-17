@@ -97,6 +97,7 @@ func main() {
 	}
 	web.SetStaticPath("/files", "files")
 	// https://studygolang.com/articles/2303
+	web.InsertFilter("*", web.BeforeRouter, routers.SessionTransportFilter)
 	web.InsertFilter("*", web.BeforeStatic, routers.RequestBodyFilter)
 	web.InsertFilter("*", web.BeforeStatic, routers.ContentTypeFilter)
 	web.InsertFilter("*", web.BeforeRouter, routers.StaticFilter)
