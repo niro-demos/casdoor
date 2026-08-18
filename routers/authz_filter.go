@@ -134,6 +134,16 @@ func getObject(ctx *context.Context) (string, string, error) {
 	}
 
 	if method == http.MethodGet {
+		if path == "/api/get-session" {
+			sessionPkId := ctx.Input.Query("sessionPkId")
+			parts := strings.Split(sessionPkId, "/")
+			if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+				return "", "", fmt.Errorf("invalid sessionPkId: %q", sessionPkId)
+			}
+
+			return parts[0], parts[1], nil
+		}
+
 		if ctx.Request.URL.Path == "/api/get-policies" {
 			if ctx.Input.Query("id") == "/" {
 				adapterId := ctx.Input.Query("adapterId")
