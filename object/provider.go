@@ -97,17 +97,45 @@ func GetMaskedProvider(provider *Provider, isMaskEnabled bool) *Provider {
 		return nil
 	}
 
-	if provider.ClientSecret != "" {
-		provider.ClientSecret = "***"
-	}
-
-	if provider.Category != "Email" {
-		if provider.ClientSecret2 != "" {
-			provider.ClientSecret2 = "***"
+	maskedProvider := *provider
+	if provider.HttpHeaders != nil {
+		maskedProvider.HttpHeaders = make(map[string]string, len(provider.HttpHeaders))
+		for name, value := range provider.HttpHeaders {
+			if isCredentialHeader(name) {
+				value = "***"
+			}
+			maskedProvider.HttpHeaders[name] = value
 		}
 	}
 
-	return provider
+	if maskedProvider.ClientSecret != "" {
+		maskedProvider.ClientSecret = "***"
+	}
+
+	if maskedProvider.Category != "Email" {
+		if maskedProvider.ClientSecret2 != "" {
+			maskedProvider.ClientSecret2 = "***"
+		}
+	}
+
+	return &maskedProvider
+}
+
+func isCredentialHeader(name string) bool {
+	name = strings.ToLower(name)
+	if name == "authorization" || name == "proxy-authorization" {
+		return true
+	}
+
+	// "Nonsecret" is commonly used to label a deliberate non-credential
+	// header. Remove that label before looking for credential-bearing terms.
+	name = strings.ReplaceAll(name, "nonsecret", "")
+	for _, term := range []string{"token", "secret", "key", "credential"} {
+		if strings.Contains(name, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func GetMaskedProviders(providers []*Provider, isMaskEnabled bool) []*Provider {
@@ -115,8 +143,8 @@ func GetMaskedProviders(providers []*Provider, isMaskEnabled bool) []*Provider {
 		return providers
 	}
 
-	for _, provider := range providers {
-		provider = GetMaskedProvider(provider, isMaskEnabled)
+	for i, provider := range providers {
+		providers[i] = GetMaskedProvider(provider, isMaskEnabled)
 	}
 	return providers
 }
