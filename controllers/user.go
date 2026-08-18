@@ -674,6 +674,30 @@ func (c *ApiController) SetPassword() {
 		return
 	}
 
+	_, err = object.ExpireTokenByUser(userOwner, userName)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	sessions, err := object.GetUserSessions(userOwner, userName)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	sessionIds := make([]string, 0)
+	for _, session := range sessions {
+		sessionIds = append(sessionIds, session.SessionId...)
+	}
+	object.DeleteBeegoSession(sessionIds)
+
+	_, err = object.DeleteAllUserSessions(userOwner, userName)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	c.ResponseOk()
 }
 
