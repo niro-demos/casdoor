@@ -207,6 +207,9 @@ func GetMaskedOrganization(isAdmin bool, organization *Organization, errs ...err
 		if organization.PasswordSalt != "" {
 			organization.PasswordSalt = "***"
 		}
+		if organization.KerberosKeytab != "" {
+			organization.KerberosKeytab = "***"
+		}
 	}
 	return organization, nil
 }

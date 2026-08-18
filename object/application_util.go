@@ -285,7 +285,9 @@ func GetMaskedApplication(application *Application, userId string) *Application 
 		application.OrganizationObj.DefaultPassword = "***"
 		application.OrganizationObj.MasterVerificationCode = "***"
 		application.OrganizationObj.PasswordType = "***"
+		application.OrganizationObj.PasswordObfuscatorKey = "***"
 		application.OrganizationObj.PasswordSalt = "***"
+		application.OrganizationObj.KerberosKeytab = "***"
 		application.OrganizationObj.InitScore = -1
 		application.OrganizationObj.EnableSoftDeletion = false
 
