@@ -37,6 +37,9 @@ func (c *ApiController) GetTransactions() {
 	value := c.Ctx.Input.Query("value")
 	sortField := c.Ctx.Input.Query("sortField")
 	sortOrder := c.Ctx.Input.Query("sortOrder")
+	if !c.requireOrganizationRead(owner) {
+		return
+	}
 
 	if limit == "" || page == "" {
 		var transactions []*object.Transaction

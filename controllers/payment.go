@@ -144,15 +144,18 @@ func (c *ApiController) GetPayment() {
 		c.ResponseError(err.Error())
 		return
 	}
+	if payment != nil && !c.requireOrganizationRead(payment.Owner) {
+		return
+	}
 
 	if !c.IsAdmin() {
 		sessionUser := c.GetSessionUsername()
-		sessionUserOwner, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
+		_, sessionUserName, err := util.GetOwnerAndNameFromIdWithError(sessionUser)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
-		if payment != nil && (payment.Owner != sessionUserOwner || payment.User != sessionUserName) {
+		if payment != nil && payment.User != sessionUserName {
 			c.ResponseError("Forbidden")
 			return
 		}
