@@ -229,6 +229,55 @@ func (c *ApiController) UploadResource() {
 	createdTime := c.Ctx.Input.Query("createdTime")
 	description := c.Ctx.Input.Query("description")
 
+	if _, ok := c.RequireSignedIn(); !ok {
+		return
+	}
+
+	var targetUser *object.User
+	var targetApplication *object.Application
+	var err error
+	if username == "Built-in-Untracked" {
+		if !c.IsAdmin() {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+		if tag == "avatar" || tag == "termsOfUse" || strings.HasPrefix(tag, "idCard") {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	} else {
+		targetUser, err = object.GetUserNoCheck(util.GetId(owner, username))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if targetUser == nil {
+			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(owner, username)))
+			return
+		}
+		if !c.IsAdminOrSelf(targetUser) {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	}
+	if tag == "termsOfUse" {
+		if !targetUser.IsAdminUser() {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+
+		_, applicationId := util.GetOwnerAndNameFromIdNoCheck(strings.TrimSuffix(fullFilePath, ".html"))
+		targetApplication, err = object.GetApplication(applicationId)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if targetApplication == nil || targetApplication.Owner != targetUser.Owner {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+	}
+
 	file, header, err := c.GetFile("file")
 	if err != nil {
 		c.ResponseError(err.Error())
@@ -323,72 +372,27 @@ func (c *ApiController) UploadResource() {
 
 	switch tag {
 	case "avatar":
-		user, err := object.GetUserNoCheck(util.GetId(owner, username))
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
-
-		if user == nil {
-			c.ResponseError(c.T("resource:User is nil for tag: avatar"))
-			return
-		}
-
-		user.Avatar = fileUrl
-		_, err = object.UpdateUser(user.GetId(), user, []string{"avatar"}, false)
+		targetUser.Avatar = fileUrl
+		_, err = object.UpdateUser(targetUser.GetId(), targetUser, []string{"avatar"}, false)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
 
 	case "termsOfUse":
-		user, err := object.GetUserNoCheck(util.GetId(owner, username))
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
-
-		if user == nil {
-			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(owner, username)))
-			return
-		}
-
-		if !user.IsAdminUser() {
-			c.ResponseError(c.T("auth:Unauthorized operation"))
-			return
-		}
-
-		_, applicationId := util.GetOwnerAndNameFromIdNoCheck(strings.TrimSuffix(fullFilePath, ".html"))
-		applicationObj, err := object.GetApplication(applicationId)
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
-		}
-
-		applicationObj.TermsOfUse = fileUrl
-		_, err = object.UpdateApplication(applicationId, applicationObj, true, c.GetAcceptLanguage(), nil)
+		targetApplication.TermsOfUse = fileUrl
+		_, err = object.UpdateApplication(targetApplication.GetId(), targetApplication, true, c.GetAcceptLanguage(), nil)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
 	case "idCardFront", "idCardBack", "idCardWithPerson":
-		user, err := object.GetUserNoCheck(util.GetId(owner, username))
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
+		if targetUser.Properties == nil {
+			targetUser.Properties = map[string]string{}
 		}
-
-		if user == nil {
-			c.ResponseError(c.T("resource:User is nil for tag: avatar"))
-			return
-		}
-
-		if user.Properties == nil {
-			user.Properties = map[string]string{}
-		}
-		user.Properties[tag] = fileUrl
-		user.Properties["isIdCardVerified"] = "false"
-		_, err = object.UpdateUser(user.GetId(), user, []string{"properties"}, false)
+		targetUser.Properties[tag] = fileUrl
+		targetUser.Properties["isIdCardVerified"] = "false"
+		_, err = object.UpdateUser(targetUser.GetId(), targetUser, []string{"properties"}, false)
 		if err != nil {
 			c.ResponseError(err.Error())
 			return
