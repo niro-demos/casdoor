@@ -319,18 +319,71 @@ func getShortClaims(claims Claims) ClaimsShort {
 	return res
 }
 
-func getClaimsWithoutThirdIdp(claims Claims) ClaimsWithoutThirdIdp {
-	res := ClaimsWithoutThirdIdp{
-		UserWithoutThirdIdp: getUserWithoutThirdIdp(claims.User),
-		TokenType:           claims.TokenType,
-		Nonce:               claims.Nonce,
-		Tag:                 claims.Tag,
-		Scope:               claims.Scope,
-		RegisteredClaims:    claims.RegisteredClaims,
-		Azp:                 claims.Azp,
-		SigninMethod:        claims.SigninMethod,
-		Provider:            claims.Provider,
+func getClaimsWithoutThirdIdp(claims Claims, configuredTokenFields ...[]string) jwt.MapClaims {
+	res := jwt.MapClaims{
+		"iss":       claims.RegisteredClaims.Issuer,
+		"sub":       claims.RegisteredClaims.Subject,
+		"aud":       claims.RegisteredClaims.Audience,
+		"exp":       claims.RegisteredClaims.ExpiresAt,
+		"nbf":       claims.RegisteredClaims.NotBefore,
+		"iat":       claims.RegisteredClaims.IssuedAt,
+		"jti":       claims.RegisteredClaims.ID,
+		"tokenType": claims.TokenType,
+		"scope":     claims.Scope,
 	}
+	if claims.Nonce != "" {
+		res["nonce"] = claims.Nonce
+	}
+	if claims.Azp != "" {
+		res["azp"] = claims.Azp
+	}
+
+	allowedFields := map[string]bool{}
+	hasWhitelist := len(configuredTokenFields) != 0 && len(configuredTokenFields[0]) != 0
+	if hasWhitelist {
+		for _, field := range configuredTokenFields[0] {
+			allowedFields[field] = true
+		}
+	}
+	allowed := func(field string) bool {
+		return !hasWhitelist || allowedFields[field]
+	}
+
+	scopes := map[string]bool{}
+	for _, scope := range strings.Fields(claims.Scope) {
+		scopes[scope] = true
+	}
+	if scopes["profile"] {
+		if allowed("Name") {
+			res["preferred_username"] = claims.User.Name
+		}
+		if allowed("DisplayName") {
+			res["name"] = claims.User.DisplayName
+		}
+		if allowed("Avatar") {
+			res["picture"] = claims.User.Avatar
+		}
+		if allowed("Groups") {
+			res["groups"] = claims.User.Groups
+		}
+		if allowed("RealName") {
+			res["real_name"] = claims.User.RealName
+		}
+		if allowed("IsVerified") {
+			res["is_verified"] = claims.User.IsVerified
+		}
+	}
+	if scopes["email"] && allowed("Email") {
+		res["email"] = claims.User.Email
+		res["email_verified"] = true
+	}
+	if scopes["address"] && allowed("Location") {
+		res["address"] = claims.User.Location
+	}
+	if scopes["phone"] && allowed("Phone") {
+		res["phone"] = claims.User.Phone
+	}
+
 	return res
 }
 
@@ -581,12 +634,13 @@ func generateJwtToken(application *Application, user *User, provider string, sig
 
 	// the JWT token length in "JWT-Empty" mode will be very short, as User object only has two properties: owner and name
 	if application.TokenFormat == "JWT" {
-		claimsWithoutThirdIdp := getClaimsWithoutThirdIdp(claims)
+		claimsWithoutThirdIdp := getClaimsWithoutThirdIdp(claims, application.TokenFields)
 
 		token = jwt.NewWithClaims(jwtMethod, claimsWithoutThirdIdp)
-		claimsWithoutThirdIdp.ExpiresAt = jwt.NewNumericDate(refreshExpireTime)
-		claimsWithoutThirdIdp.TokenType = "refresh-token"
-		refreshToken = jwt.NewWithClaims(jwtMethod, claimsWithoutThirdIdp)
+		refreshClaims := getClaimsWithoutThirdIdp(claims, application.TokenFields)
+		refreshClaims["exp"] = jwt.NewNumericDate(refreshExpireTime)
+		refreshClaims["tokenType"] = "refresh-token"
+		refreshToken = jwt.NewWithClaims(jwtMethod, refreshClaims)
 	} else if application.TokenFormat == "JWT-Empty" {
 		claimsShort := getShortClaims(claims)
 
